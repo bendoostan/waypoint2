@@ -62,6 +62,32 @@ fakes the `auth` schema and API roles on plain Postgres so migrations can be
 applied and verified. Apply shim, then migrations in filename order. Never
 run the shim against a real Supabase database.
 
+## Engine (`src/lib/engine/`)
+
+Pure TypeScript, zero I/O, fully unit-tested. No `@supabase/*` imports
+except `import type { Database }`; no `Date.now()`/`new Date()` — every
+time-dependent function takes `now: Date`.
+
+| Module                | Role (PLAN.md §4 stage)                                                 |
+| --------------------- | ----------------------------------------------------------------------- |
+| `types.ts`            | input types derived from DB rows; `EngineInput` bundle                  |
+| `schema.ts`           | zod contract for `PlanResult` — the `plans.strategies` jsonb shape      |
+| `effective-wallet.ts` | §4.1 unlock rule, cpp pricing, unlock opportunities                     |
+| `reachability.ts`     | §4.2 depth-≤2 expansion, bonus windows, min/increment rounding          |
+| `routes.ts`           | §4.3 candidate matching (airport beats region), availability annotation |
+| `solve.ts`            | §4.4 exact subset-search solver by opportunity cost                     |
+| `gap.ts`              | §4.5 offer ranking + earn velocity + months-to-goal variants            |
+| `rank.ts`             | §4.6 tier assignment and deterministic sort                             |
+| `timeline.ts`         | §4.7 per-strategy monthly projection (≤24 entries)                      |
+| `rationale.ts`        | template-string rationale — no AI near the numbers                      |
+| `index.ts`            | `generatePlan(input)`: composes everything, zod-parses output           |
+| `from-db.ts`          | DB rows → `EngineInput` mapping (types only, no fetching)               |
+
+**`legs` caveat:** goals have no one-way/round-trip column yet. The engine
+takes `legs: 1 | 2` as an explicit input and callers default to 2 (round
+trip). Adding a goal column for it is a Phase 3 decision — do not migrate
+for it earlier.
+
 ## Conventions
 
 - RLS on every table, no exceptions. User tables owner-only via

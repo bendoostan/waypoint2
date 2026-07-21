@@ -2,12 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { generatePlan } from "./index";
 import { planResultSchema } from "./schema";
-import {
-  cardByName,
-  currencyByName,
-  seedReferenceData,
-  walletCard,
-} from "./test-fixtures";
+import { cardByName, seedReferenceData, walletCard } from "./test-fixtures";
 import type {
   AwardRoute,
   CardCatalog,

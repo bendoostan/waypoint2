@@ -42,3 +42,8 @@ next-env.d.ts
 
 # claude code local settings
 .claude/settings.local.json
+!.env.example
+
+# supabase local artifacts
+supabase/.temp
+supabase/.branches

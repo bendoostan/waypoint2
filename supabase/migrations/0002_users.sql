@@ -101,7 +101,9 @@ create policy "own profile read" on public.profiles
 create policy "own profile update" on public.profiles
   for update to authenticated
   using (id = (select auth.uid()))
-  with check (id = (select auth.uid()) and role = 'user');
+  with check (
+    id = (select auth.uid()) and (role = 'user' or public.is_admin())
+  );
 
 create policy "own cards" on public.user_cards
   for all to authenticated

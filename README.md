@@ -86,11 +86,18 @@ neither Docker nor the Supabase CLI.
 
 ### 1. Point a Supabase project at it first
 
-Follow "Using a hosted Supabase project" above through `pnpm db:migrate` and
-`pnpm seed` — run once from any machine with `psql` and this repo, against
-your project's connection string. **Vercel never runs migrations or the
-seed**, so the schema and data must already exist before (or shortly after)
-the first deploy.
+**Vercel never runs migrations or the seed**, so the schema and data must
+exist before (or shortly after) the first deploy. Two ways to set them up:
+
+- **No local tooling (easiest):** open your project's **SQL Editor**, paste
+  the contents of [`deploy/hosted-setup.sql`](deploy/hosted-setup.sql), and
+  run it once. That creates the full schema (migrations 0001–0004) and seeds
+  the reference graph + example review-queue items — no Node, no `psql`, no
+  Docker. (It leaves out the ~4,000 airports, which the admin portal doesn't
+  need; load them later with `pnpm seed` if you want them for Phase 3.)
+- **With local tooling:** follow "Using a hosted Supabase project" above
+  through `pnpm db:migrate` and `pnpm seed`, run once against your project's
+  connection string. This also loads the airports.
 
 ### 2. Import the repo
 

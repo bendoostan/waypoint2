@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -14,31 +15,57 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+type Mode = "signin" | "signup";
+
 export default function LoginPage() {
+  const router = useRouter();
+  const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function sendLink(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    setNotice(null);
     const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        shouldCreateUser: true,
-        // The email's magic link routes here; /auth/callback exchanges the
-        // code for a session, then redirects into the app.
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
+
+    if (mode === "signin") {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      setBusy(false);
+      if (error) {
+        setError(error.message);
+        return;
+      }
+      router.push("/dashboard");
+      router.refresh();
+      return;
+    }
+
+    // signup
+    const { data, error } = await supabase.auth.signUp({ email, password });
     setBusy(false);
     if (error) {
       setError(error.message);
+      return;
+    }
+    if (data.session) {
+      // Email confirmation is disabled → we're signed in immediately.
+      router.push("/dashboard");
+      router.refresh();
     } else {
-      setSent(true);
+      // Confirmation is on; the confirmation email may be rate-limited. Tell
+      // the user how to finish without it.
+      setNotice(
+        "Account created. If it doesn't sign you in, disable email confirmation in Supabase (Authentication → Providers → Email) or confirm the user in the dashboard, then sign in."
+      );
+      setMode("signin");
     }
   }
 
@@ -46,50 +73,72 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Sign in to Waypoint</CardTitle>
+          <CardTitle>
+            {mode === "signin" ? "Sign in to Waypoint" : "Create your account"}
+          </CardTitle>
           <CardDescription>
-            {sent
-              ? `Check ${email} for a sign-in link and open it in this browser.`
-              : "We'll email you a link that signs you in — no password."}
+            {mode === "signin"
+              ? "Enter your email and password."
+              : "Pick an email and password — no confirmation email required."}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {sent ? (
-            <div className="grid gap-4">
-              <p className="text-muted-foreground text-sm">
-                The link opens the app already signed in. Didn&apos;t get it?
-                Check spam, or send another.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setSent(false);
-                  setError(null);
-                }}
-              >
-                Use a different email
-              </Button>
+          <form onSubmit={submit} className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                required
+                autoFocus
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+              />
             </div>
-          ) : (
-            <form onSubmit={sendLink} className="grid gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  required
-                  autoFocus
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                />
-              </div>
-              <Button type="submit" disabled={busy}>
-                {busy ? "Sending…" : "Send sign-in link"}
-              </Button>
-            </form>
-          )}
+            <div className="grid gap-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                required
+                minLength={6}
+                autoComplete={
+                  mode === "signin" ? "current-password" : "new-password"
+                }
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="At least 6 characters"
+              />
+            </div>
+            <Button type="submit" disabled={busy}>
+              {busy
+                ? "Please wait…"
+                : mode === "signin"
+                  ? "Sign in"
+                  : "Create account"}
+            </Button>
+          </form>
+
+          <Button
+            type="button"
+            variant="ghost"
+            className="mt-2 w-full"
+            onClick={() => {
+              setMode(mode === "signin" ? "signup" : "signin");
+              setError(null);
+              setNotice(null);
+            }}
+          >
+            {mode === "signin"
+              ? "Need an account? Create one"
+              : "Already have an account? Sign in"}
+          </Button>
+
+          {notice ? (
+            <p className="text-muted-foreground mt-4 text-sm">{notice}</p>
+          ) : null}
           {error ? (
             <p className="text-destructive mt-4 text-sm">{error}</p>
           ) : null}

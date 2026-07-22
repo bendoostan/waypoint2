@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -16,46 +15,30 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [step, setStep] = useState<"email" | "code">("email");
+  const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function sendCode(e: React.FormEvent) {
+  async function sendLink(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { shouldCreateUser: true },
+      options: {
+        shouldCreateUser: true,
+        // The email's magic link routes here; /auth/callback exchanges the
+        // code for a session, then redirects into the app.
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
     });
     setBusy(false);
     if (error) {
       setError(error.message);
     } else {
-      setStep("code");
-    }
-  }
-
-  async function verifyCode(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    const supabase = createClient();
-    const { error } = await supabase.auth.verifyOtp({
-      email,
-      token: code,
-      type: "email",
-    });
-    setBusy(false);
-    if (error) {
-      setError(error.message);
-    } else {
-      router.push("/dashboard");
-      router.refresh();
+      setSent(true);
     }
   }
 
@@ -65,14 +48,31 @@ export default function LoginPage() {
         <CardHeader>
           <CardTitle>Sign in to Waypoint</CardTitle>
           <CardDescription>
-            {step === "email"
-              ? "We'll email you a one-time code."
-              : `Enter the code sent to ${email}.`}
+            {sent
+              ? `Check ${email} for a sign-in link and open it in this browser.`
+              : "We'll email you a link that signs you in — no password."}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {step === "email" ? (
-            <form onSubmit={sendCode} className="grid gap-4">
+          {sent ? (
+            <div className="grid gap-4">
+              <p className="text-muted-foreground text-sm">
+                The link opens the app already signed in. Didn&apos;t get it?
+                Check spam, or send another.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setSent(false);
+                  setError(null);
+                }}
+              >
+                Use a different email
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={sendLink} className="grid gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -86,32 +86,7 @@ export default function LoginPage() {
                 />
               </div>
               <Button type="submit" disabled={busy}>
-                {busy ? "Sending…" : "Send code"}
-              </Button>
-            </form>
-          ) : (
-            <form onSubmit={verifyCode} className="grid gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="code">One-time code</Label>
-                <Input
-                  id="code"
-                  inputMode="numeric"
-                  required
-                  autoFocus
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="123456"
-                />
-              </div>
-              <Button type="submit" disabled={busy}>
-                {busy ? "Verifying…" : "Verify"}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setStep("email")}
-              >
-                Use a different email
+                {busy ? "Sending…" : "Send sign-in link"}
               </Button>
             </form>
           )}

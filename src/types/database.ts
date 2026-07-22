@@ -616,7 +616,53 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_staging_change: {
+        Args: { change_id: string }
+        Returns: {
+          confidence: number | null
+          created_at: string
+          diff: Json | null
+          id: string
+          proposed: Json
+          reviewed_at: string | null
+          reviewed_by: string | null
+          source: string
+          source_urls: string[] | null
+          status: string
+          target_id: string | null
+          target_table: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "staging_changes"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       is_admin: { Args: never; Returns: boolean }
+      reject_staging_change: {
+        Args: { change_id: string }
+        Returns: {
+          confidence: number | null
+          created_at: string
+          diff: Json | null
+          id: string
+          proposed: Json
+          reviewed_at: string | null
+          reviewed_by: string | null
+          source: string
+          source_urls: string[] | null
+          status: string
+          target_id: string | null
+          target_table: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "staging_changes"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
     }
     Enums: {
       [_ in never]: never

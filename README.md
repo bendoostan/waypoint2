@@ -30,15 +30,56 @@ Supabase).
     `psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -c
 "update profiles set role = 'admin';"` (after your first sign-in)
 
+## Using a hosted Supabase project (no Docker)
+
+No Docker available? Point the app at a real (free) Supabase project instead
+of the local stack. Everything that talks to Postgres — migrations, seed,
+type generation — reads its connection info from environment variables, so
+nothing here is hardcoded to `supabase start`.
+
+1. Create a free project at [supabase.com](https://supabase.com) (any
+   region; the free tier is enough for this).
+2. Grab three values from the dashboard:
+   - **Project URL** and **anon public key** — Project Settings -> API
+   - **Connection string** (URI, direct connection — not the pooler) —
+     Project Settings -> Database -> Connection string. It already includes
+     `?sslmode=require`; keep that.
+3. `cp .env.example .env.local`, then replace `NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `DATABASE_URL` with those three
+   values. Leave `SUPABASE_SERVICE_ROLE_KEY` as-is (unused for this flow) or
+   fill it in from the same API settings page if you want it for later.
+4. `pnpm install`
+5. `pnpm db:migrate` — applies `supabase/migrations/*.sql` in order against
+   `DATABASE_URL`. This is the Docker-less equivalent of
+   `supabase db reset`; do **not** run `scripts/ci/supabase-shim.sql` first —
+   that shim fakes Supabase's auth schema/roles for plain Postgres in CI, and
+   a real Supabase project already has them for real.
+6. `pnpm seed` — same idempotent seed as local, now writing to your hosted
+   project.
+7. `pnpm db:types` — regenerates `src/types/database.ts` from the hosted
+   schema (should match what's already committed, since migrations are
+   frozen once merged).
+8. `pnpm dev` — the app now talks to your hosted project. Sign in at
+   `/login`; the one-time code arrives via Supabase's built-in auth email
+   (check the inbox for the address you used, including spam) rather than
+   the local Mailpit inbox.
+9. Make yourself admin — either via the Supabase dashboard's SQL editor, or:
+   `psql "$DATABASE_URL" -c "update profiles set role = 'admin';"` (after
+   your first sign-in, so the profile row exists).
+
+Skip `pnpm exec supabase start` entirely in this flow — it's Docker-only and
+not needed once `DATABASE_URL` points at a hosted project.
+
 ## Scripts
 
-| Script                                         | Purpose                                     |
-| ---------------------------------------------- | ------------------------------------------- |
-| `pnpm dev` / `pnpm build` / `pnpm start`       | Next.js                                     |
-| `pnpm seed`                                    | Seed the local DB (safe to rerun)           |
-| `pnpm db:types`                                | Regenerate DB types from the local schema   |
-| `pnpm test`                                    | Run tests once (`pnpm test:watch` to watch) |
-| `pnpm lint` / `pnpm typecheck` / `pnpm format` | Hygiene                                     |
+| Script                                         | Purpose                                               |
+| ---------------------------------------------- | ----------------------------------------------------- |
+| `pnpm dev` / `pnpm build` / `pnpm start`       | Next.js                                               |
+| `pnpm db:migrate`                              | Apply migrations against `DATABASE_URL` (Docker-less) |
+| `pnpm seed`                                    | Seed the DB at `DATABASE_URL` (safe to rerun)         |
+| `pnpm db:types`                                | Regenerate DB types from `DATABASE_URL`'s schema      |
+| `pnpm test`                                    | Run tests once (`pnpm test:watch` to watch)           |
+| `pnpm lint` / `pnpm typecheck` / `pnpm format` | Hygiene                                               |
 
 ## Repository layout
 

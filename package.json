@@ -10,6 +10,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
+    "db:migrate": "bash scripts/migrate.sh",
     "db:types": "bash scripts/gen-types.sh",
     "seed": "tsx scripts/seed/index.ts",
     "test": "vitest run",

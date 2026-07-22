@@ -62,6 +62,11 @@ fakes the `auth` schema and API roles on plain Postgres so migrations can be
 applied and verified. Apply shim, then migrations in filename order. Never
 run the shim against a real Supabase database.
 
+Docker-less against a real project (no shim, e.g. a hosted Supabase project
+or any other CLI-less workflow): `pnpm db:migrate` applies
+`supabase/migrations/*.sql` in order against `DATABASE_URL` via psql — see
+README.md "Using a hosted Supabase project" for the full walkthrough.
+
 ## Engine (`src/lib/engine/`)
 
 Pure TypeScript, zero I/O, fully unit-tested. No `@supabase/*` imports

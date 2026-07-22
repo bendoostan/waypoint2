@@ -41,9 +41,14 @@ nothing here is hardcoded to `supabase start`.
    region; the free tier is enough for this).
 2. Grab three values from the dashboard:
    - **Project URL** and **anon public key** — Project Settings -> API
-   - **Connection string** (URI, direct connection — not the pooler) —
-     Project Settings -> Database -> Connection string. It already includes
-     `?sslmode=require`; keep that.
+   - **Connection string** — Project Settings -> Database -> Connection
+     string. Prefer the direct connection (URI); it already includes
+     `?sslmode=require` — keep that. Note the direct host
+     (`db.<ref>.supabase.co`) is IPv6-only: if your network lacks IPv6
+     (`psql` fails with "network unreachable"), switch the dashboard
+     dropdown to **Session pooler** and use that URI instead (IPv4, port
+     5432, username `postgres.<ref>`) — it works fine for migrations and
+     seed. Avoid the transaction pooler (port 6543) for migrations.
 3. `cp .env.example .env.local`, then replace `NEXT_PUBLIC_SUPABASE_URL`,
    `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `DATABASE_URL` with those three
    values. Leave `SUPABASE_SERVICE_ROLE_KEY` as-is (unused for this flow) or

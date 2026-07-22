@@ -75,6 +75,62 @@ nothing here is hardcoded to `supabase start`.
 Skip `pnpm exec supabase start` entirely in this flow — it's Docker-only and
 not needed once `DATABASE_URL` points at a hosted project.
 
+## Deploy to Vercel
+
+The app is a standard Next.js 15 app — Vercel auto-detects the framework,
+runs `pnpm install` then `pnpm build`, and serves `.next`. No `vercel.json`
+is needed (there are no custom routes, headers, rewrites, crons, or regions),
+so none is committed. Deploying the app does **not** touch the database:
+`next build` never connects to Postgres, runs no migrations, and needs
+neither Docker nor the Supabase CLI.
+
+### 1. Point a Supabase project at it first
+
+Follow "Using a hosted Supabase project" above through `pnpm db:migrate` and
+`pnpm seed` — run once from any machine with `psql` and this repo, against
+your project's connection string. **Vercel never runs migrations or the
+seed**, so the schema and data must already exist before (or shortly after)
+the first deploy.
+
+### 2. Import the repo
+
+In Vercel: **Add New… → Project → import the GitHub repo**. Leave the
+framework preset (Next.js), build command (`pnpm build`), and output
+directory at their auto-detected defaults.
+
+### 3. Set environment variables
+
+The running app reads exactly **two** variables (both are baked into the
+client bundle at build time _and_ read on the server at runtime, so set them
+**before the first deploy** and redeploy after any change):
+
+| Variable                        | Value (fill in your own)                                                                           |
+| ------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`      | `https://<your-ref>.supabase.co`                                                                   |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | your **publishable** key (`sb_publishable_…`, or legacy anon `eyJ…`) — never the `sb_secret_…` key |
+
+Add them for the Production (and Preview, if you use it) environments.
+
+You do **not** need `DATABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY` on Vercel —
+the app never reads them. `DATABASE_URL` is only for the one-time
+migrate/seed in step 1, run from your machine (use the **Session pooler**
+connection string there; the direct `db.<ref>.supabase.co` host is
+IPv6-only). Leave both out of Vercel unless a later phase needs them.
+
+### 4. Deploy, then wire up auth redirects
+
+Deploy. Once you have the Vercel URL, open Supabase → **Authentication → URL
+Configuration** and set **Site URL** to your Vercel domain (and add it under
+**Redirect URLs**) so the sign-in email links resolve to the deployed app
+instead of `localhost`.
+
+### 5. Make yourself admin
+
+Sign in at `https://<your-app>.vercel.app/login`, then promote your account
+(Supabase dashboard SQL editor, or `psql "$DATABASE_URL" -c "update profiles
+set role = 'admin';"` from your machine). The **Admin** link appears in the
+header, and `/admin/queue` has the three seeded proposals to review.
+
 ## Scripts
 
 | Script                                         | Purpose                                               |

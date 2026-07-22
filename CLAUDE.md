@@ -88,6 +88,21 @@ takes `legs: 1 | 2` as an explicit input and callers default to 2 (round
 trip). Adding a goal column for it is a Phase 3 decision — do not migrate
 for it earlier.
 
+## Admin portal (`src/app/(app)/admin/`)
+
+- The `(app)/admin` layout hard-gates with `notFound()` for non-admins; RLS
+  (`is_admin()`) is the real control, the gate just hides URLs.
+- All admin reads/writes go through the authenticated (RLS-gated) client —
+  never the service-role key. Mutations are server actions that zod-validate
+  (`src/lib/validation`) before writing.
+- Applying a `staging_changes` row goes through the `apply_staging_change`
+  /`reject_staging_change` RPCs (migration 0004): `security definer`,
+  self-check `is_admin()`, and match `target_table` against a hard-coded
+  whitelist via literal per-table branches — a table name is never
+  interpolated into SQL. The review queue re-validates with the same zod
+  schemas before calling apply; the DB function is the last line of defense.
+- `scripts/ci/admin-smoke.sql` exercises apply end-to-end (CI `database` job).
+
 ## Conventions
 
 - RLS on every table, no exceptions. User tables owner-only via

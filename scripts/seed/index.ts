@@ -5,10 +5,12 @@ import postgres from "postgres";
 
 import {
   BONUS_EDGE,
+  STAGING_BONUS_EDGE,
   awardRoutes,
   cards,
   currencies,
   earningRates,
+  stagingChanges,
   transferBonuses,
   transferPartners,
   welcomeOffers,
@@ -187,6 +189,32 @@ async function main() {
       `;
     }
     console.log(`award_routes: ${awardRoutes.length} upserted`);
+
+    // --- example review-queue items ----------------------------------------
+    const [mrAna] = await sql<{ id: string }[]>`
+      select id from transfer_partners
+      where from_currency_id = ${STAGING_BONUS_EDGE.from_currency_id}
+        and to_currency_id = ${STAGING_BONUS_EDGE.to_currency_id}
+    `;
+    if (!mrAna) throw new Error("MR->ANA edge not found for staging seed");
+    const changes = stagingChanges(mrAna.id);
+    for (const change of changes) {
+      const row = {
+        ...change,
+        proposed: JSON.stringify(change.proposed),
+        diff: change.diff === null ? null : JSON.stringify(change.diff),
+      };
+      await sql`
+        insert into staging_changes ${sql(row)}
+        on conflict (id) do update set
+          target_table = excluded.target_table,
+          target_id = excluded.target_id, proposed = excluded.proposed,
+          diff = excluded.diff, source = excluded.source,
+          confidence = excluded.confidence, source_urls = excluded.source_urls,
+          status = excluded.status
+      `;
+    }
+    console.log(`staging_changes: ${changes.length} upserted`);
 
     console.log("seed complete");
   } finally {

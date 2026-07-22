@@ -551,3 +551,69 @@ export const awardRoutes: Tables["award_routes"]["Insert"][] = [
     is_active: true,
   },
 ];
+
+// Example pending review-queue items so /admin/queue is demonstrable in dev.
+// The transfer-bonus insert's partner id is resolved by the seed runner
+// (STAGING_BONUS_EDGE), like the active bonus above. Idempotent on id.
+export const STAGING_BONUS_EDGE = {
+  from_currency_id: CURRENCY_IDS.amexMR,
+  to_currency_id: CURRENCY_IDS.ana,
+} as const;
+
+export function stagingChanges(
+  mrToAnaPartnerId: string
+): Tables["staging_changes"]["Insert"][] {
+  return [
+    {
+      // proposed INSERT: a new limited-time transfer bonus (draft)
+      id: "55555555-5555-4555-8555-000000000001",
+      target_table: "transfer_bonuses",
+      target_id: null,
+      proposed: {
+        transfer_partner_id: mrToAnaPartnerId,
+        bonus_pct: 40,
+        starts_at: "2026-08-15T00:00:00Z",
+        ends_at: "2026-10-15T23:59:59Z",
+        source_url: "https://www.americanexpress.com/transfer-bonus",
+        status: "draft",
+      },
+      diff: null,
+      source: "claude_research",
+      confidence: 0.86,
+      source_urls: [
+        "https://www.americanexpress.com/transfer-bonus",
+        "https://frequentmiler.com/amex-transfer-bonuses/",
+      ],
+      status: "pending",
+    },
+    {
+      // proposed UPDATE: revalue Capital One Miles slightly upward
+      id: "55555555-5555-4555-8555-000000000002",
+      target_table: "currencies",
+      target_id: CURRENCY_IDS.capitalOne,
+      proposed: { transfer_cpp: 1.85 },
+      diff: { transfer_cpp: { from: 1.7, to: 1.85 } },
+      source: "claude_research",
+      confidence: 0.7,
+      source_urls: [
+        "https://thepointsguy.com/loyalty-programs/points-valuations/",
+      ],
+      status: "pending",
+    },
+    {
+      // proposed UPDATE: a limited-time increase to the Sapphire welcome offer
+      id: "55555555-5555-4555-8555-000000000003",
+      target_table: "welcome_offers",
+      target_id: "33333333-3333-4333-8333-000000000001",
+      proposed: { points: 75000, min_spend_usd: 5000 },
+      diff: {
+        points: { from: 60000, to: 75000 },
+        min_spend_usd: { from: 4000, to: 5000 },
+      },
+      source: "manual",
+      confidence: 0.95,
+      source_urls: ["https://www.chase.com/sapphire-preferred"],
+      status: "pending",
+    },
+  ];
+}

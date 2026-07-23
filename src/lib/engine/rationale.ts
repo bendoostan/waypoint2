@@ -1,6 +1,7 @@
 // Rationale text is template strings over computed numbers — v1 by design
 // (PLAN.md §4): fast, honest, testable. No AI anywhere near these numbers.
-import type { Strategy } from "./schema";
+// The trip is narrated leg by leg: each leg names its route, program, and gap.
+import type { LegPlan, Strategy } from "./schema";
 
 function fmt(n: number): string {
   return n.toLocaleString("en-US");
@@ -13,25 +14,27 @@ function usdFmt(n: number): string {
   })}`;
 }
 
-export function rationale(
-  strategy: Omit<Strategy, "rationale" | "timeline">
-): string {
-  const parts: string[] = [];
-  const needed = fmt(strategy.points_needed);
+function legLabel(leg: LegPlan): string {
+  if (leg.covers_round_trip) return `Round trip on ${leg.route_name}`;
+  return `Leg ${leg.leg_index} — ${leg.route_name}`;
+}
 
-  if (strategy.tier === "bookable_now") {
+function legParts(leg: LegPlan): string[] {
+  const parts: string[] = [];
+  const needed = fmt(leg.points_needed);
+  if (leg.gap <= 0) {
     parts.push(
-      `Bookable now: your wallet covers all ${needed} ${strategy.program_currency_name} points for ${strategy.route_name}.`
+      `${legLabel(leg)}: your wallet covers all ${needed} ${leg.program_currency_name} points.`
     );
   } else {
     parts.push(
-      `${strategy.route_name} needs ${needed} ${strategy.program_currency_name} points; you can reach ${fmt(
-        strategy.reachable_points
-      )} today, leaving a ${fmt(strategy.gap)}-point gap.`
+      `${legLabel(leg)}: needs ${needed} ${leg.program_currency_name} points; you can reach ${fmt(
+        leg.reachable_points
+      )} today, leaving a ${fmt(leg.gap)}-point gap.`
     );
   }
 
-  for (const a of strategy.allocations) {
+  for (const a of leg.allocations) {
     if (a.path.length === 0) {
       parts.push(
         `Use ${fmt(a.points_used)} ${a.currency_name} directly (worth ${usdFmt(
@@ -52,6 +55,38 @@ export function rationale(
         .join(", then ");
       parts.push(`Transfer ${hops}.`);
     }
+  }
+  return parts;
+}
+
+export function rationale(
+  strategy: Omit<Strategy, "rationale" | "timeline">
+): string {
+  const parts: string[] = [];
+  const totalNeeded = fmt(strategy.points_needed);
+
+  if (strategy.tier === "bookable_now") {
+    const bookLabel =
+      strategy.booking === "round_trip_unit"
+        ? "in one round-trip booking"
+        : strategy.legs.length > 1
+          ? "across both legs"
+          : "";
+    parts.push(
+      `Bookable now: your wallet covers all ${totalNeeded} points for this trip${
+        bookLabel ? ` ${bookLabel}` : ""
+      }.`
+    );
+  } else {
+    parts.push(
+      `This trip needs ${totalNeeded} points; you can reach ${fmt(
+        strategy.reachable_points
+      )} today, leaving a ${fmt(strategy.gap)}-point gap.`
+    );
+  }
+
+  for (const leg of strategy.legs) {
+    parts.push(...legParts(leg));
   }
 
   const card = strategy.recommended_card;

@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { expandReachability } from "./reachability";
-import { matchRoutes } from "./routes";
+import { matchLegRoutes, matchRoundTripRoutes } from "./routes";
 import { solveCandidate } from "./solve";
 import { seedAwardRoutes } from "./test-fixtures";
-import type { Currency, EffectiveCurrency, TransferPartner } from "./types";
+import type {
+  Currency,
+  EffectiveCurrency,
+  EngineLeg,
+  TransferPartner,
+} from "./types";
 
 const P = "cccccccc-0000-4000-8000-00000000000f"; // target program
 const X = "cccccccc-0000-4000-8000-00000000000a"; // pricey bank points
@@ -118,58 +123,107 @@ describe("solveCandidate is exact, not greedy", () => {
   });
 });
 
-describe("matchRoutes", () => {
-  const goalBase = {
-    origin_airport: "SFO",
-    destination_airport: null as string | null,
-    destination_region: null as string | null,
-    cabin: "business",
-    travel_month: null,
-    num_travelers: 1,
-    flexibility: "flexible_month",
+function leg(over: Partial<EngineLeg> = {}): EngineLeg {
+  return {
+    leg_index: 1,
+    origin_airport: "JFK",
+    destination_airport: null,
+    destination_region: null,
+    cabin: "economy",
+    ...over,
   };
+}
 
-  it("prefers airport matches over region matches and filters cabin", () => {
-    const goal = {
-      ...goalBase,
-      destination_airport: "HND",
-      destination_region: "Japan",
-    };
-    const candidates = matchRoutes(seedAwardRoutes, goal, []);
+describe("matchLegRoutes (one_way routes serve a single leg)", () => {
+  it("prefers airport matches over region matches", () => {
+    // A specific CDG airport goal matches the Flying Blue route by airport.
+    const candidates = matchLegRoutes(
+      seedAwardRoutes,
+      leg({ destination_airport: "CDG", destination_region: "Europe" }),
+      []
+    );
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]!.route.name).toContain("Flying Blue");
+    expect(candidates[0]!.match_type).toBe("airport");
+  });
+
+  it("matches on region when the leg has no airport", () => {
+    const candidates = matchLegRoutes(
+      seedAwardRoutes,
+      leg({ destination_region: "Europe" }),
+      []
+    );
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]!.match_type).toBe("region");
+  });
+
+  it("filters on cabin", () => {
+    const candidates = matchLegRoutes(
+      seedAwardRoutes,
+      leg({ destination_region: "Europe", cabin: "business" }),
+      []
+    );
+    expect(candidates).toHaveLength(0);
+  });
+
+  it("rejects origins outside the route's airport list", () => {
+    const candidates = matchLegRoutes(
+      seedAwardRoutes,
+      leg({ origin_airport: "MIA", destination_airport: "CDG" }),
+      []
+    );
+    expect(candidates).toHaveLength(0);
+  });
+
+  it("never surfaces a round_trip route as a one-way leg", () => {
+    // The ANA route is booking_unit=round_trip, so it is not a leg candidate.
+    const candidates = matchLegRoutes(
+      seedAwardRoutes,
+      leg({
+        origin_airport: "SFO",
+        destination_airport: "HND",
+        cabin: "business",
+      }),
+      []
+    );
+    expect(candidates).toHaveLength(0);
+  });
+});
+
+describe("matchRoundTripRoutes (round_trip routes cover both legs)", () => {
+  const out = leg({
+    origin_airport: "SFO",
+    destination_airport: "HND",
+    cabin: "business",
+  });
+  const back = leg({
+    leg_index: 2,
+    origin_airport: "HND",
+    destination_airport: "SFO",
+    cabin: "business",
+  });
+
+  it("matches ANA when the two legs are exact reverses", () => {
+    const candidates = matchRoundTripRoutes(seedAwardRoutes, out, back, []);
     expect(candidates).toHaveLength(1);
     expect(candidates[0]!.route.name).toContain("ANA");
     expect(candidates[0]!.match_type).toBe("airport");
   });
 
-  it("matches on region when the goal has no airport", () => {
-    const goal = {
-      ...goalBase,
-      cabin: "economy",
-      origin_airport: "JFK",
-      destination_region: "Europe",
-    };
-    const candidates = matchRoutes(seedAwardRoutes, goal, []);
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0]!.match_type).toBe("region");
-  });
-
-  it("rejects origins outside the route's airport list", () => {
-    const goal = {
-      ...goalBase,
-      origin_airport: "MIA",
+  it("rejects legs that are not exact reverses", () => {
+    const notReverse = leg({
+      leg_index: 2,
+      origin_airport: "SFO",
       destination_airport: "HND",
-      destination_region: null,
-    };
-    expect(matchRoutes(seedAwardRoutes, goal, [])).toHaveLength(0);
+      cabin: "business",
+    });
+    expect(
+      matchRoundTripRoutes(seedAwardRoutes, out, notReverse, [])
+    ).toHaveLength(0);
   });
 
   it("treats missing availability as unverified, not unavailable", () => {
-    const goal = {
-      ...goalBase,
-      destination_airport: "HND",
-      destination_region: null,
-    };
-    const candidates = matchRoutes(seedAwardRoutes, goal, []);
+    const candidates = matchRoundTripRoutes(seedAwardRoutes, out, back, []);
     expect(candidates[0]!.availability.verified).toBe(false);
     expect(candidates[0]!.availability.entries).toHaveLength(0);
   });

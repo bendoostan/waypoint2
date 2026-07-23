@@ -518,8 +518,9 @@ export const awardRoutes: Tables["award_routes"]["Insert"][] = [
     points_oneway: 42500,
     taxes_fees_usd_est: 250,
     booking_url: "https://www.ana.co.jp/en/us/amc/",
-    notes:
-      "seed; ANA books round-trip only — points_oneway is half the RT price",
+    // booking_unit encodes "round trip only"; points_oneway is per direction.
+    booking_unit: "round_trip",
+    notes: "seed; points_oneway is half the round-trip price",
     is_active: true,
   },
   {

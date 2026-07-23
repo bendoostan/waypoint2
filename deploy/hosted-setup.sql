@@ -687,6 +687,54 @@ revoke execute on function public.reject_staging_change(uuid) from public, anon;
 grant execute on function public.apply_staging_change(uuid) to authenticated, service_role;
 grant execute on function public.reject_staging_change(uuid) to authenticated, service_role;
 
+
+-- ---- supabase/migrations/0005_multi_leg.sql ----
+-- 0005_multi_leg: multi-leg (round-trip / open-jaw) award trips + design
+-- fields. Additive only — 0001-0004 above are frozen.
+
+alter table public.award_routes
+  add column booking_unit text not null default 'one_way'
+    check (booking_unit in ('one_way', 'round_trip'));
+
+alter table public.card_catalog add column brand_color text;
+alter table public.card_catalog add column logo_url text;
+
+create table public.goal_legs (
+  id uuid primary key default gen_random_uuid(),
+  goal_id uuid not null references public.goals (id) on delete cascade,
+  leg_index integer not null check (leg_index in (1, 2)),
+  origin_airport text not null check (origin_airport ~ '^[A-Z]{3}$'),
+  destination_airport text check (destination_airport ~ '^[A-Z]{3}$'),
+  destination_region text,
+  cabin text not null check (
+    cabin in ('economy', 'premium_economy', 'business', 'first')
+  ),
+  check (destination_airport is not null or destination_region is not null),
+  unique (goal_id, leg_index)
+);
+
+create index goal_legs_goal_id_idx on public.goal_legs (goal_id);
+
+alter table public.goal_legs enable row level security;
+
+create policy "own goal legs" on public.goal_legs
+  for all to authenticated
+  using (
+    exists (
+      select 1 from public.goals g
+      where g.id = goal_legs.goal_id and g.user_id = (select auth.uid())
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.goals g
+      where g.id = goal_legs.goal_id and g.user_id = (select auth.uid())
+    )
+  );
+
+grant select, insert, update, delete on public.goal_legs to authenticated;
+grant select, insert, update, delete on public.goal_legs to service_role;
+
 -- ========================================================================
 -- SEED (reference graph + example staging_changes; no airports)
 -- ========================================================================
@@ -700,7 +748,7 @@ INSERT INTO public.currencies (id, name, kind, alliance, cashback_cpp, transfer_
 INSERT INTO public.currencies (id, name, kind, alliance, cashback_cpp, transfer_cpp, requires_unlock, is_active, notes) VALUES ('11111111-1111-4111-8111-000000000007', 'ANA Mileage Club', 'airline', 'star', 0, 1.8, false, true, 'seed');
 INSERT INTO public.currencies (id, name, kind, alliance, cashback_cpp, transfer_cpp, requires_unlock, is_active, notes) VALUES ('11111111-1111-4111-8111-000000000008', 'Singapore KrisFlyer', 'airline', 'star', 0, 1.4, false, true, 'seed');
 INSERT INTO public.currencies (id, name, kind, alliance, cashback_cpp, transfer_cpp, requires_unlock, is_active, notes) VALUES ('11111111-1111-4111-8111-000000000009', 'British Airways Avios', 'airline', 'oneworld', 0, 1.4, false, true, 'seed');
-INSERT INTO public.award_routes (id, name, program_currency_id, origin_region, origin_airports, destination_region, destination_airports, cabin, points_oneway, taxes_fees_usd_est, booking_url, notes, is_active, last_verified_at) VALUES ('5ec43858-f471-482a-b7eb-b07d18820493', 'ANA business class to Japan (round-trip)', '11111111-1111-4111-8111-000000000007', 'US West Coast', '{LAX,SFO,SEA}', 'Japan', '{NRT,HND}', 'business', 42500, 250, 'https://www.ana.co.jp/en/us/amc/', 'seed; ANA books round-trip only — points_oneway is half the RT price', true, NULL);
+INSERT INTO public.award_routes (id, name, program_currency_id, origin_region, origin_airports, destination_region, destination_airports, cabin, points_oneway, taxes_fees_usd_est, booking_url, notes, is_active, last_verified_at, booking_unit) VALUES ('5ec43858-f471-482a-b7eb-b07d18820493', 'ANA business class to Japan (round-trip)', '11111111-1111-4111-8111-000000000007', 'US West Coast', '{LAX,SFO,SEA}', 'Japan', '{NRT,HND}', 'business', 42500, 250, 'https://www.ana.co.jp/en/us/amc/', 'seed; points_oneway is half the round-trip price', true, NULL, 'round_trip');
 INSERT INTO public.award_routes (id, name, program_currency_id, origin_region, origin_airports, destination_region, destination_airports, cabin, points_oneway, taxes_fees_usd_est, booking_url, notes, is_active, last_verified_at) VALUES ('981b5f19-0a63-4741-a494-c08b62fc434a', 'Flying Blue economy to Europe', '11111111-1111-4111-8111-000000000006', 'US East Coast', '{JFK,BOS,IAD}', 'Europe', '{CDG,AMS}', 'economy', 20000, 120, 'https://www.flyingblue.com/', 'seed', true, NULL);
 INSERT INTO public.award_routes (id, name, program_currency_id, origin_region, origin_airports, destination_region, destination_airports, cabin, points_oneway, taxes_fees_usd_est, booking_url, notes, is_active, last_verified_at) VALUES ('a08fd4db-64b2-4019-a5df-4588a171fc1f', 'United economy to Hawaii', '11111111-1111-4111-8111-000000000004', 'US West Coast', '{LAX,SFO,SAN}', 'Hawaii', '{HNL,OGG}', 'economy', 22500, 6, 'https://www.united.com/', 'seed', true, NULL);
 INSERT INTO public.card_catalog (id, name, issuer, currency_id, annual_fee, unlocks_transfers, affiliate_url, application_rules, is_active, discontinued_at, notes) VALUES ('22222222-2222-4222-8222-000000000001', 'Sapphire Preferred', 'Chase', '11111111-1111-4111-8111-000000000001', 95, true, NULL, NULL, true, NULL, 'seed');

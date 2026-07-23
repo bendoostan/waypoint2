@@ -1,7 +1,11 @@
 // Stage 7 (PLAN.md §4.7): the precomputed time-to-earn visual. Months are
-// derived from `now` only — never the wall clock. Emission caps at 24
-// months; a plan that books immediately emits a single month.
-import type { Allocation, CardRecommendation, TimelineEntry } from "./schema";
+// derived from `now` only — never the wall clock. Emission caps at 24 months.
+//
+// One shared projection for the whole trip: the balance climbs toward the
+// trip's total need, and the trip BOOKS (per-leg transfer + book events) only
+// once every leg is covered. A trip that books immediately emits a single
+// month.
+import type { CardRecommendation, LegPlan, TimelineEntry } from "./schema";
 import type { GapClosure } from "./gap";
 
 export function monthKey(now: Date, offsetMonths: number): string {
@@ -16,10 +20,14 @@ function fmt(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-function transferDescriptions(allocations: Allocation[]): string[] {
-  return allocations
-    .filter((a) => a.path.length > 0)
-    .map((a) => {
+function transferDescriptions(legs: LegPlan[]): string[] {
+  const multi = legs.length > 1;
+  const out: string[] = [];
+  for (const leg of legs) {
+    const prefix =
+      multi && !leg.covers_round_trip ? `Leg ${leg.leg_index}: ` : "";
+    for (const a of leg.allocations) {
+      if (a.path.length === 0) continue;
       const hops = a.path
         .map((s) => {
           const bonus = s.bonus_pct !== null ? ` (+${s.bonus_pct}% bonus)` : "";
@@ -28,39 +36,48 @@ function transferDescriptions(allocations: Allocation[]): string[] {
           )} ${s.to_currency_name}${bonus}`;
         })
         .join(", then ");
-      return `Transfer ${hops}`;
-    });
+      out.push(`${prefix}Transfer ${hops}`);
+    }
+  }
+  return out;
+}
+
+function bookDescriptions(legs: LegPlan[]): string[] {
+  return legs.map((leg) => {
+    const what = leg.covers_round_trip
+      ? `${leg.route_name} (round trip, ${fmt(leg.points_needed)} points)`
+      : `${leg.route_name} (${fmt(leg.points_needed)} points)`;
+    return `Book ${what}`;
+  });
 }
 
 export function buildTimeline(params: {
   now: Date;
+  /** trip totals */
   needed: number;
   reachable: number;
   gap: number;
-  allocations: Allocation[];
+  legs: LegPlan[];
   closure: GapClosure;
-  routeName: string;
   recommended: CardRecommendation | null;
 }): TimelineEntry[] {
-  const { now, needed, reachable, gap, allocations, closure, routeName } =
-    params;
-  const recommended = params.recommended;
+  const { now, needed, reachable, gap, legs, closure, recommended } = params;
+
+  const transfers = transferDescriptions(legs).map((description) => ({
+    type: "transfer" as const,
+    description,
+  }));
+  const books = bookDescriptions(legs).map((description) => ({
+    type: "book" as const,
+    description,
+  }));
 
   if (gap <= 0) {
     return [
       {
         month: monthKey(now, 0),
         projected_balance: needed,
-        events: [
-          ...transferDescriptions(allocations).map((description) => ({
-            type: "transfer" as const,
-            description,
-          })),
-          {
-            type: "book" as const,
-            description: `Book ${routeName} (${fmt(needed)} points)`,
-          },
-        ],
+        events: [...transfers, ...books],
       },
     ];
   }
@@ -101,17 +118,10 @@ export function buildTimeline(params: {
 
     const projected = Math.floor(balance);
     if (projected >= needed) {
-      for (const description of transferDescriptions(allocations)) {
-        events.push({ type: "transfer", description });
-      }
-      events.push({
-        type: "book",
-        description: `Book ${routeName} (${fmt(needed)} points)`,
-      });
       entries.push({
         month: monthKey(now, m),
         projected_balance: projected,
-        events,
+        events: [...events, ...transfers, ...books],
       });
       break;
     }

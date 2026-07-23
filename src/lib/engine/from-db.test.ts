@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildEngineInput } from "./from-db";
 import { cardByName, seedReferenceData } from "./test-fixtures";
-import type { GoalRow } from "./types";
+import type { GoalLegRow, GoalRow } from "./types";
 
 const goal: GoalRow = {
   id: "abababab-0000-4000-8000-000000000001",
@@ -49,21 +49,61 @@ describe("buildEngineInput", () => {
     expect(input.wallet).toHaveLength(1);
     expect(input.wallet[0]!.card.name).toBe("Freedom Unlimited");
     expect(input.monthlySpend).toEqual({ dining: 500 });
-    expect(input.legs).toBe(2); // caller default: round trip
     expect(input.goal.num_travelers).toBe(2);
   });
 
-  it("handles a missing profile and explicit legs", () => {
+  it("falls back to a single leg synthesized from the goal columns", () => {
     const input = buildEngineInput({
       userCards: [],
       profile: null,
       goal,
       ...seedReferenceData,
       availability: [],
-      legs: 1,
       now: new Date("2026-08-01T00:00:00Z"),
     });
-    expect(input.monthlySpend).toEqual({});
-    expect(input.legs).toBe(1);
+    expect(input.legs).toHaveLength(1);
+    expect(input.legs[0]).toEqual({
+      leg_index: 1,
+      origin_airport: "SFO",
+      destination_airport: "HND",
+      destination_region: "Japan",
+      cabin: "business",
+    });
+  });
+
+  it("builds legs from goal_legs, ordered by leg_index", () => {
+    const goalLegs: GoalLegRow[] = [
+      {
+        id: "cccc0000-0000-4000-8000-000000000002",
+        goal_id: goal.id,
+        leg_index: 2,
+        origin_airport: "HND",
+        destination_airport: "SFO",
+        destination_region: null,
+        cabin: "business",
+      },
+      {
+        id: "cccc0000-0000-4000-8000-000000000001",
+        goal_id: goal.id,
+        leg_index: 1,
+        origin_airport: "SFO",
+        destination_airport: "HND",
+        destination_region: null,
+        cabin: "business",
+      },
+    ];
+    const input = buildEngineInput({
+      userCards: [],
+      profile: null,
+      goal,
+      goalLegs,
+      ...seedReferenceData,
+      availability: [],
+      now: new Date("2026-08-01T00:00:00Z"),
+    });
+    expect(input.legs.map((l) => l.leg_index)).toEqual([1, 2]);
+    expect(input.legs[0]!.origin_airport).toBe("SFO");
+    expect(input.legs[1]!.origin_airport).toBe("HND");
+    expect(input.legs[1]!.destination_airport).toBe("SFO");
   });
 });

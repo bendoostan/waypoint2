@@ -49,6 +49,8 @@ function mkCard(
     is_active: true,
     discontinued_at: null,
     notes: null,
+    brand_color: null,
+    logo_url: null,
     ...over,
   };
 }

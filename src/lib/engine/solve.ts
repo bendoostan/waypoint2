@@ -16,7 +16,7 @@ export type SolveResult = {
   max_transfer_hours: number;
 };
 
-type SourceOption = {
+export type SourceOption = {
   quote: PathQuote;
   balance: number;
   cpp: number;
@@ -49,7 +49,7 @@ function toAllocation(
   };
 }
 
-type Attempt = {
+export type Attempt = {
   allocations: Allocation[];
   cost: number;
   hops: number;
@@ -104,28 +104,35 @@ function betterAttempt(a: Attempt, b: Attempt): Attempt {
   return a.max_hours <= b.max_hours ? a : b;
 }
 
-export function solveCandidate(
-  needed: number,
+/**
+ * Build the per-source options for delivering into a destination. `caps`
+ * (currency id -> max usable balance) lets the joint solver ration a shared
+ * source between the two legs; an absent entry means the full balance is
+ * available. Sources capped to 0 (or that cannot deliver a positive amount at
+ * their cap) are dropped.
+ */
+export function buildSourceOptions(
   destCurrencyId: string,
   reach: Reachability,
   entries: EffectiveCurrency[],
-  currencies: Currency[]
-): SolveResult {
-  const names = new Map(currencies.map((c) => [c.id, c.name]));
-  const currencyName = (id: string) => names.get(id) ?? id;
+  caps?: Map<string, number>
+): SourceOption[] {
   const balances = new Map(entries.map((e) => [e.currency_id, e]));
-
   const options: SourceOption[] = [];
   for (const quote of (reach.get(destCurrencyId) ?? new Map()).values()) {
     const entry = balances.get(quote.source_currency_id);
     if (!entry || !entry.unlocked || entry.balance <= 0) continue;
-    if (quote.max_deliverable <= 0) continue;
-    const atMax = deliverThrough(quote.edges, entry.balance);
+    const cap = caps?.get(quote.source_currency_id);
+    const balance =
+      cap === undefined ? entry.balance : Math.min(entry.balance, cap);
+    if (balance <= 0) continue;
+    const atMax = deliverThrough(quote.edges, balance);
+    if (atMax.delivered <= 0) continue;
     options.push({
       quote,
-      balance: entry.balance,
+      balance,
       cpp: entry.cpp,
-      max_deliverable: quote.max_deliverable,
+      max_deliverable: atMax.delivered,
       marginal_cost:
         atMax.delivered > 0
           ? (atMax.sent * entry.cpp) / 100 / atMax.delivered
@@ -136,6 +143,41 @@ export function solveCandidate(
   options.sort((a, b) =>
     a.quote.source_currency_id.localeCompare(b.quote.source_currency_id)
   );
+  return options;
+}
+
+/**
+ * Exact min-cost fill of `needed` into one destination program from a fixed
+ * option set (the shared machinery both legs reuse). Returns the best Attempt,
+ * or null if the options cannot cover the need.
+ */
+export function bestAttempt(
+  options: SourceOption[],
+  needed: number,
+  currencyName: (id: string) => string
+): Attempt | null {
+  let best: Attempt | null = null;
+  const n = options.length;
+  for (let mask = 1; mask < 1 << n; mask += 1) {
+    const subset = options.filter((_, i) => (mask & (1 << i)) !== 0);
+    const attempt = attemptFill(subset, needed, currencyName);
+    if (attempt) best = best ? betterAttempt(best, attempt) : attempt;
+  }
+  return best;
+}
+
+export function solveCandidate(
+  needed: number,
+  destCurrencyId: string,
+  reach: Reachability,
+  entries: EffectiveCurrency[],
+  currencies: Currency[],
+  caps?: Map<string, number>
+): SolveResult {
+  const names = new Map(currencies.map((c) => [c.id, c.name]));
+  const currencyName = (id: string) => names.get(id) ?? id;
+
+  const options = buildSourceOptions(destCurrencyId, reach, entries, caps);
 
   const totalMax = options.reduce((s, o) => s + o.max_deliverable, 0);
 
@@ -147,13 +189,7 @@ export function solveCandidate(
     return summarize(allocations, needed);
   }
 
-  let best: Attempt | null = null;
-  const n = options.length;
-  for (let mask = 1; mask < 1 << n; mask += 1) {
-    const subset = options.filter((_, i) => (mask & (1 << i)) !== 0);
-    const attempt = attemptFill(subset, needed, currencyName);
-    if (attempt) best = best ? betterAttempt(best, attempt) : attempt;
-  }
+  const best = bestAttempt(options, needed, currencyName);
 
   // totalMax >= needed guarantees at least the full set covers.
   if (!best) {

@@ -25,6 +25,7 @@ export const CABINS = [
   "first",
 ] as const;
 export const BONUS_STATUSES = ["draft", "approved", "expired"] as const;
+export const BOOKING_UNITS = ["one_way", "round_trip"] as const;
 
 const uuid = z.string().uuid();
 const iata = z
@@ -62,6 +63,9 @@ export const cardCatalogSchema = z.object({
   is_active: z.boolean(),
   discontinued_at: z.string().nullish(),
   notes: optionalText,
+  // Design-system fields (migration 0005); nullable, engine ignores them.
+  brand_color: optionalText,
+  logo_url: optionalUrl,
 });
 
 export const earningRateSchema = z.object({
@@ -137,6 +141,9 @@ export const awardRouteSchema = z.object({
   notes: optionalText,
   is_active: z.boolean(),
   last_verified_at: z.string().nullish(),
+  // migration 0005: 'round_trip' routes are priced per direction but booked
+  // as one atomic round trip. Omitted proposals default to 'one_way' in the DB.
+  booking_unit: z.enum(BOOKING_UNITS).optional(),
 });
 
 // The whitelist — identical to apply_staging_change's, and the only tables

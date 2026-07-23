@@ -9,11 +9,31 @@ import type {
   Currency,
   EngineGoal,
   EngineInput,
+  EngineLeg,
   WelcomeOffer,
 } from "./types";
 
 const NOW = new Date("2026-08-01T00:00:00Z");
 
+// A round trip is two explicit legs whose endpoints reverse (SFO->HND, HND->SFO).
+const japanLegs: EngineLeg[] = [
+  {
+    leg_index: 1,
+    origin_airport: "SFO",
+    destination_airport: "HND",
+    destination_region: "Japan",
+    cabin: "business",
+  },
+  {
+    leg_index: 2,
+    origin_airport: "HND",
+    destination_airport: "SFO",
+    destination_region: "Japan",
+    cabin: "business",
+  },
+];
+
+// Only num_travelers is read from the goal now; legs carry O/D/cabin.
 const japanGoal: EngineGoal = {
   origin_airport: "SFO",
   destination_airport: "HND",
@@ -29,22 +49,27 @@ function input(overrides: Partial<EngineInput>): EngineInput {
     wallet: [],
     referenceData: seedReferenceData,
     goal: japanGoal,
+    legs: japanLegs,
     availability: [],
     monthlySpend: {},
-    legs: 2,
     now: NOW,
     ...overrides,
   };
 }
 
 describe("generatePlan — Freedom unlock end to end", () => {
-  it("shows zero reachability but a $800 unlock delta for locked UR", () => {
+  it("prices the round trip as one ANA round_trip-unit and shows the $800 unlock", () => {
     const result = generatePlan(
       input({ wallet: [walletCard(cardByName("Freedom Unlimited"), 80_000)] })
     );
-    const ana = result.strategies.find((s) => s.route_name.includes("ANA"));
+    const ana = result.strategies.find((s) =>
+      s.legs[0]!.route_name.includes("ANA")
+    );
     expect(ana).toBeDefined();
-    expect(ana!.points_needed).toBe(85_000); // 42,500 × 2 legs
+    expect(ana!.booking).toBe("round_trip_unit");
+    expect(ana!.legs).toHaveLength(1);
+    expect(ana!.legs[0]!.covers_round_trip).toBe(true);
+    expect(ana!.points_needed).toBe(85_000); // 42,500 × 2 directions
     expect(ana!.reachable_points).toBe(0); // locked UR is not a source
     expect(ana!.gap).toBe(85_000);
     expect(ana!.unlock_opportunities).toHaveLength(1);
@@ -54,43 +79,36 @@ describe("generatePlan — Freedom unlock end to end", () => {
   });
 
   it("opens transfer reachability once a Sapphire Preferred is held", () => {
-    const result = generatePlan(
-      input({
-        wallet: [
-          walletCard(cardByName("Freedom Unlimited"), 80_000),
-          walletCard(cardByName("Sapphire Preferred"), 0),
-        ],
-      })
-    );
-    const ana = result.strategies.find((s) => s.route_name.includes("ANA"));
-    // UR reaches ANA via UR→Aeroplan? No — reachability needs a path;
-    // seed has no UR→ANA edge, so check the Hawaii route instead, where
-    // UR→United is direct.
+    // A one-way Hawaii leg: UR unlocks via Sapphire, UR->United reaches it.
     const hawaii = generatePlan(
       input({
         wallet: [
           walletCard(cardByName("Freedom Unlimited"), 80_000),
           walletCard(cardByName("Sapphire Preferred"), 0),
         ],
-        goal: {
-          ...japanGoal,
-          cabin: "economy",
-          origin_airport: "LAX",
-          destination_airport: "HNL",
-          destination_region: "Hawaii",
-        },
+        goal: { ...japanGoal, cabin: "economy", num_travelers: 1 },
+        legs: [
+          {
+            leg_index: 1,
+            origin_airport: "LAX",
+            destination_airport: "HNL",
+            destination_region: "Hawaii",
+            cabin: "economy",
+          },
+        ],
       })
-    ).strategies.find((s) => s.route_name.includes("Hawaii"));
+    ).strategies.find((s) => s.legs[0]!.route_name.includes("Hawaii"));
 
     expect(hawaii).toBeDefined();
-    expect(hawaii!.points_needed).toBe(45_000);
+    expect(hawaii!.booking).toBe("one_way_each");
+    expect(hawaii!.points_needed).toBe(22_500); // single one-way leg
     expect(hawaii!.gap).toBe(0);
     expect(hawaii!.tier).toBe("bookable_now");
-    expect(ana!.unlock_opportunities).toHaveLength(0);
+    expect(hawaii!.unlock_opportunities).toHaveLength(0);
   });
 });
 
-describe("generatePlan — four tiers land and sort in order", () => {
+describe("generatePlan — four tiers land and sort in order (single-leg)", () => {
   const P = "ffffffff-0000-4000-8000-000000000001";
   const currencies: Currency[] = [
     {
@@ -117,6 +135,8 @@ describe("generatePlan — four tiers land and sort in order", () => {
     is_active: true,
     discontinued_at: null,
     notes: null,
+    brand_color: null,
+    logo_url: null,
   };
   const offerCard: CardCatalog = {
     ...heldCard,
@@ -148,6 +168,7 @@ describe("generatePlan — four tiers land and sort in order", () => {
     notes: null,
     is_active: true,
     last_verified_at: null,
+    booking_unit: "one_way",
   });
 
   const result = generatePlan(
@@ -197,13 +218,24 @@ describe("generatePlan — four tiers land and sort in order", () => {
         num_travelers: 1,
         flexibility: "anytime",
       },
+      legs: [
+        {
+          leg_index: 1,
+          origin_airport: "AAA",
+          destination_airport: null,
+          destination_region: "Testland",
+          cabin: "economy",
+        },
+      ],
       monthlySpend: { dining: 2_000 },
-      legs: 1,
     })
   );
 
+  const byName = new Map(
+    result.strategies.map((s) => [s.legs[0]!.route_name, s])
+  );
+
   it("assigns all four tiers", () => {
-    const byName = new Map(result.strategies.map((s) => [s.route_name, s]));
     expect(byName.get("R bookable")?.tier).toBe("bookable_now");
     expect(byName.get("R reachable")?.tier).toBe("reachable");
     expect(byName.get("R needs card")?.tier).toBe("needs_card");
@@ -220,7 +252,6 @@ describe("generatePlan — four tiers land and sort in order", () => {
   });
 
   it("computes months_to_goal from spend pace and bonus posting", () => {
-    const byName = new Map(result.strategies.map((s) => [s.route_name, s]));
     expect(byName.get("R reachable")?.months_to_goal).toBe(10); // 40k gap / 4k
     // 140k gap: bonus (100k) posts month 2 at $2k/mo pace; 4k/mo velocity
     expect(byName.get("R needs card")?.months_to_goal).toBe(10);
@@ -244,19 +275,23 @@ describe("generatePlan — four tiers land and sort in order", () => {
 });
 
 describe("generatePlan — determinism and schema", () => {
+  const europeLeg: EngineLeg[] = [
+    {
+      leg_index: 1,
+      origin_airport: "JFK",
+      destination_airport: null,
+      destination_region: "Europe",
+      cabin: "economy",
+    },
+  ];
   const deterministicInput = input({
     wallet: [
       walletCard(cardByName("Freedom Unlimited"), 80_000),
       walletCard(cardByName("Sapphire Preferred"), 20_000),
       walletCard(cardByName("Gold Card"), 40_000),
     ],
-    goal: {
-      ...japanGoal,
-      cabin: "economy",
-      origin_airport: "JFK",
-      destination_airport: null,
-      destination_region: "Europe",
-    },
+    goal: { ...japanGoal, cabin: "economy" },
+    legs: europeLeg,
     monthlySpend: { dining: 800, groceries: 600 },
   });
 
@@ -269,10 +304,11 @@ describe("generatePlan — determinism and schema", () => {
   it("applies the seeded Flying Blue bonus inside the window", () => {
     const plan = generatePlan(deterministicInput);
     const fb = plan.strategies.find((s) =>
-      s.route_name.includes("Flying Blue")
+      s.legs[0]!.route_name.includes("Flying Blue")
     );
     expect(fb).toBeDefined();
-    const bonusStep = fb!.allocations
+    const bonusStep = fb!.legs
+      .flatMap((l) => l.allocations)
       .flatMap((a) => a.path)
       .find((p) => p.bonus_pct === 25);
     expect(bonusStep).toBeDefined();

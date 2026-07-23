@@ -78,6 +78,7 @@ export type Database = {
       }
       award_routes: {
         Row: {
+          booking_unit: string
           booking_url: string | null
           cabin: string
           destination_airports: string[] | null
@@ -94,6 +95,7 @@ export type Database = {
           taxes_fees_usd_est: number
         }
         Insert: {
+          booking_unit?: string
           booking_url?: string | null
           cabin: string
           destination_airports?: string[] | null
@@ -110,6 +112,7 @@ export type Database = {
           taxes_fees_usd_est?: number
         }
         Update: {
+          booking_unit?: string
           booking_url?: string | null
           cabin?: string
           destination_airports?: string[] | null
@@ -139,11 +142,13 @@ export type Database = {
           affiliate_url: string | null
           annual_fee: number
           application_rules: Json | null
+          brand_color: string | null
           currency_id: string
           discontinued_at: string | null
           id: string
           is_active: boolean
           issuer: string
+          logo_url: string | null
           name: string
           notes: string | null
           unlocks_transfers: boolean
@@ -152,11 +157,13 @@ export type Database = {
           affiliate_url?: string | null
           annual_fee?: number
           application_rules?: Json | null
+          brand_color?: string | null
           currency_id: string
           discontinued_at?: string | null
           id?: string
           is_active?: boolean
           issuer: string
+          logo_url?: string | null
           name: string
           notes?: string | null
           unlocks_transfers?: boolean
@@ -165,11 +172,13 @@ export type Database = {
           affiliate_url?: string | null
           annual_fee?: number
           application_rules?: Json | null
+          brand_color?: string | null
           currency_id?: string
           discontinued_at?: string | null
           id?: string
           is_active?: boolean
           issuer?: string
+          logo_url?: string | null
           name?: string
           notes?: string | null
           unlocks_transfers?: boolean
@@ -249,6 +258,43 @@ export type Database = {
             foreignKeyName: "earning_rates_card_id_fkey"
             columns: ["card_id"]
             referencedRelation: "card_catalog"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      goal_legs: {
+        Row: {
+          cabin: string
+          destination_airport: string | null
+          destination_region: string | null
+          goal_id: string
+          id: string
+          leg_index: number
+          origin_airport: string
+        }
+        Insert: {
+          cabin: string
+          destination_airport?: string | null
+          destination_region?: string | null
+          goal_id: string
+          id?: string
+          leg_index: number
+          origin_airport: string
+        }
+        Update: {
+          cabin?: string
+          destination_airport?: string | null
+          destination_region?: string | null
+          goal_id?: string
+          id?: string
+          leg_index?: number
+          origin_airport?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "goal_legs_goal_id_fkey"
+            columns: ["goal_id"]
+            referencedRelation: "goals"
             referencedColumns: ["id"]
           },
         ]

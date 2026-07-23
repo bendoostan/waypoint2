@@ -57,6 +57,8 @@ export const seedCards: CardCatalog[] = cards.map((c) => ({
   is_active: c.is_active ?? true,
   discontinued_at: c.discontinued_at ?? null,
   notes: c.notes ?? null,
+  brand_color: c.brand_color ?? null,
+  logo_url: c.logo_url ?? null,
 }));
 
 export const seedEarningRates: Tables["earning_rates"]["Row"][] =
@@ -130,6 +132,7 @@ export const seedAwardRoutes: AwardRoute[] = awardRoutes.map((r) => ({
   notes: r.notes ?? null,
   is_active: r.is_active ?? true,
   last_verified_at: r.last_verified_at ?? null,
+  booking_unit: r.booking_unit ?? "one_way",
 }));
 
 export const seedReferenceData: ReferenceData = {

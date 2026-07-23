@@ -8,6 +8,8 @@ import type {
   EarningRate,
   EngineGoal,
   EngineInput,
+  EngineLeg,
+  GoalLegRow,
   GoalRow,
   ProfileRow,
   TransferBonus,
@@ -21,6 +23,12 @@ export type EngineInputRows = {
   userCards: UserCardRow[];
   profile: Pick<ProfileRow, "monthly_spend"> | null;
   goal: GoalRow;
+  /**
+   * goal_legs rows for this goal (any order). When present they define the
+   * itinerary; when absent the engine synthesizes a single leg from the goals
+   * columns. No backfill exists, so absence is the common case for now.
+   */
+  goalLegs?: GoalLegRow[];
   currencies: Currency[];
   cards: CardCatalog[];
   earningRates: EarningRate[];
@@ -29,10 +37,32 @@ export type EngineInputRows = {
   transferBonuses: TransferBonus[];
   awardRoutes: AwardRoute[];
   availability: AvailabilityRow[];
-  /** defaults to 2 (round trip) — goals carry no legs column yet */
-  legs?: 1 | 2;
   now: Date;
 };
+
+function buildLegs(goal: GoalRow, goalLegs: GoalLegRow[]): EngineLeg[] {
+  if (goalLegs.length > 0) {
+    return [...goalLegs]
+      .sort((a, b) => a.leg_index - b.leg_index)
+      .map((l) => ({
+        leg_index: l.leg_index === 2 ? 2 : 1,
+        origin_airport: l.origin_airport,
+        destination_airport: l.destination_airport,
+        destination_region: l.destination_region,
+        cabin: l.cabin,
+      }));
+  }
+  // Fallback: treat the goal's own columns as a single (leg 1) itinerary.
+  return [
+    {
+      leg_index: 1,
+      origin_airport: goal.origin_airport,
+      destination_airport: goal.destination_airport,
+      destination_region: goal.destination_region,
+      cabin: goal.cabin,
+    },
+  ];
+}
 
 function toMonthlySpend(
   value: ProfileRow["monthly_spend"]
@@ -89,9 +119,9 @@ export function buildEngineInput(rows: EngineInputRows): EngineInput {
       awardRoutes: rows.awardRoutes,
     },
     goal,
+    legs: buildLegs(rows.goal, rows.goalLegs ?? []),
     availability: rows.availability,
     monthlySpend: toMonthlySpend(rows.profile?.monthly_spend ?? null),
-    legs: rows.legs ?? 2,
     now: rows.now,
   };
 }

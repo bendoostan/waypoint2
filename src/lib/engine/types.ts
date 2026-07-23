@@ -13,6 +13,7 @@ export type TransferBonus = Tables["transfer_bonuses"]["Row"];
 export type AwardRoute = Tables["award_routes"]["Row"];
 export type AvailabilityRow = Tables["availability_cache"]["Row"];
 export type GoalRow = Tables["goals"]["Row"];
+export type GoalLegRow = Tables["goal_legs"]["Row"];
 export type UserCardRow = Tables["user_cards"]["Row"];
 export type ProfileRow = Tables["profiles"]["Row"];
 
@@ -47,10 +48,32 @@ export type EngineGoal = Pick<
   | "flexibility"
 >;
 
+/**
+ * One directional flight in a trip (leg 1 = outbound, leg 2 = return). Each
+ * leg carries its own origin/destination/cabin and is route-matched
+ * independently; the two legs draw from ONE shared wallet. A round trip is two
+ * legs whose endpoints reverse; an open-jaw is two legs that do not.
+ */
+export type EngineLeg = {
+  leg_index: 1 | 2;
+  origin_airport: string;
+  destination_airport: string | null;
+  destination_region: string | null;
+  cabin: string;
+};
+
 export type EngineInput = {
   wallet: WalletCard[];
   referenceData: ReferenceData;
+  /** Kept for trip-wide fields the legs don't carry (num_travelers). */
   goal: EngineGoal;
+  /**
+   * The itinerary, ordered by leg_index. Length 1 (one-way) or 2 (round trip
+   * or open-jaw); generatePlan throws on 0 or 3+. num_travelers multiplies
+   * each leg's need. Replaces the old `legs: 1 | 2` multiplier: a round trip
+   * is now two explicit legs, not one route priced twice.
+   */
+  legs: EngineLeg[];
   availability: AvailabilityRow[];
   /**
    * profiles.monthly_spend — category -> USD/month. Not listed in the
@@ -58,11 +81,6 @@ export type EngineInput = {
    * empty object means "unknown spend" and yields months_to_goal: null.
    */
   monthlySpend: Record<string, number>;
-  /**
-   * 1 = one-way, 2 = round trip. Goals carry no such column yet — callers
-   * default to 2. Adding a goal field is a Phase 3 decision.
-   */
-  legs: 1 | 2;
   /** All time-dependent logic keys off this — never the wall clock. */
   now: Date;
 };

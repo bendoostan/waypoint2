@@ -167,6 +167,11 @@ export function closeGap(params: {
   };
 
   // --- (a) welcome offer ranking -------------------------------------------
+  // Selection is spend-aware: when monthly spend is KNOWN (> 0), an offer
+  // whose min_spend_usd cannot be met within its own window at that pace is
+  // ineligible, so the best *reachable* offer surfaces instead. Unknown spend
+  // (0) disqualifies nothing — we can't prove the minimum is out of reach.
+  const spendPerMonth = totalSpend(monthlySpend);
   let recommended: CardRecommendation | null = null;
   if (gap > 0) {
     for (const offer of offers) {
@@ -176,6 +181,10 @@ export function closeGap(params: {
       if (!card || !card.is_active) continue;
       const conversion = rateInto(card.currency_id, card);
       if (conversion <= 0) continue;
+      const eligibleAtStatedSpend =
+        spendPerMonth <= 0 ||
+        Math.ceil(offer.min_spend_usd / spendPerMonth) <= offer.window_months;
+      if (!eligibleAtStatedSpend) continue;
 
       const delivered = Math.floor(offer.points * conversion);
       const denominator = Math.max(1, offer.min_spend_usd + card.annual_fee);
@@ -223,14 +232,18 @@ export function closeGap(params: {
   }
 
   // --- months_to_goal & bonus month ----------------------------------------
-  const spendPerMonth = totalSpend(monthlySpend);
   let bonusMonth: number | null = null;
   if (recommended !== null && spendPerMonth > 0) {
-    // Min spend is met at the stated monthly pace, never instantly.
-    bonusMonth = Math.min(
-      Math.max(1, Math.ceil(recommended.min_spend_usd / spendPerMonth)),
-      recommended.window_months
+    // The bonus posts the month spend first reaches the minimum at the stated
+    // pace — never clamped down to the window. If that month falls outside the
+    // window the bonus never posts, so bonus_month is null (not a false date).
+    // Selection above already guarantees this lands within the window; the
+    // null branch keeps the number honest even so.
+    const month = Math.max(
+      1,
+      Math.ceil(recommended.min_spend_usd / spendPerMonth)
     );
+    bonusMonth = month <= recommended.window_months ? month : null;
   }
 
   const monthsHeld =

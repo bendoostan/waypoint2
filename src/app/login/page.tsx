@@ -52,7 +52,17 @@ export default function LoginPage() {
     const { data, error } = await supabase.auth.signUp({ email, password });
     setBusy(false);
     if (error) {
-      setError(error.message);
+      if (/rate limit/i.test(error.message)) {
+        // Supabase still tries to send a confirmation email on signUp
+        // whenever "Confirm email" is on, even though this is a password
+        // flow — and its built-in sender is heavily throttled. Turning that
+        // setting off removes the email step entirely, not just delivery.
+        setError(
+          "Supabase's email sender is rate-limited, and this project still requires confirming new signups by email. Turn off Confirm email in the Supabase dashboard (Authentication → Providers → Email) — signup will work immediately after, no waiting. Or add the user directly in Authentication → Users → Add user with Auto Confirm checked, then sign in here."
+        );
+      } else {
+        setError(error.message);
+      }
       return;
     }
     if (data.session) {

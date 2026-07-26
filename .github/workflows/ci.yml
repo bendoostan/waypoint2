@@ -21,6 +21,11 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
 
+      - name: Hosted setup bundle is regenerated from the migrations
+        run: |
+          bash scripts/gen-hosted-setup.sh
+          git diff --exit-code deploy/hosted-setup.sql
+
   database:
     runs-on: ubuntu-latest
     services:

@@ -1,26 +1,30 @@
--- Waypoint — one-shot hosted-project setup for the Supabase SQL Editor.
+-- Waypoint — one-shot hosted-project schema setup for the Supabase SQL Editor.
 --
--- Run this ONCE against a fresh Supabase project (Dashboard -> SQL Editor ->
--- New query -> paste -> Run). It creates the full schema (migrations
--- 0001-0004) and seeds the reference graph + example review-queue items, so
--- the deployed app has data to show without any local tooling.
+-- GENERATED FILE — do not edit by hand. Regenerate with:
+--   bash scripts/gen-hosted-setup.sh
+-- It is a verbatim concatenation of supabase/migrations/*.sql, in order; CI
+-- fails if this file drifts from the migrations.
 --
--- A real Supabase project already provides the auth schema, auth.uid(), and
--- the anon/authenticated/service_role roles these migrations rely on — so do
--- NOT run scripts/ci/supabase-shim.sql here (that is only for plain Postgres
--- in CI). Run this on a fresh project; re-running it on a populated one will
--- error on the CREATE TABLE statements.
+-- Run this ONCE against a FRESH Supabase project (Dashboard -> SQL Editor ->
+-- New query -> paste -> Run). It creates the full schema. Re-running it on a
+-- populated project will error on the CREATE TABLE statements.
 --
--- Airports (~4,000 rows) are intentionally left out — they are for the
--- Phase 3 consumer app, not the admin portal. Load them later with
--- `pnpm seed` once you have Node + a DATABASE_URL, if you want them.
+-- A real Supabase project already provides the auth schema, auth.uid(), and the
+-- anon/authenticated/service_role roles these migrations rely on, so do NOT run
+-- scripts/ci/supabase-shim.sql here (that is only for plain Postgres in CI).
+--
+-- This bundle is SCHEMA ONLY. It seeds no data:
+--   * The reference graph (currencies, cards, routes, ...) and the ~4,000
+--     airport rows both load via `pnpm seed` once you have Node + a
+--     DATABASE_URL pointed at the project (see README).
+--   * Until airports are loaded, airport pickers must degrade to accepting a
+--     validated raw IATA code (^[A-Z]{3}$) rather than offering autocomplete.
 
--- ========================================================================
--- SCHEMA (migrations 0001_reference -> 0004_admin)
--- ========================================================================
 
+-- ======================================================================
+-- supabase/migrations/0001_reference.sql
+-- ======================================================================
 
--- ---- supabase/migrations/0001_reference.sql ----
 -- 0001_reference: the knowledge graph's reference layer (PLAN.md section 3).
 -- RLS is enabled here with no policies (deny-all); policies arrive in
 -- 0002_users once profiles.role exists to distinguish admins.
@@ -200,7 +204,11 @@ grant select, insert, update, delete on
   public.airports
 to service_role;
 
--- ---- supabase/migrations/0002_users.sql ----
+
+-- ======================================================================
+-- supabase/migrations/0002_users.sql
+-- ======================================================================
+
 -- 0002_users: user layer (PLAN.md section 3) + RLS for everything so far.
 -- Airport codes use text + a 3-letter check instead of char(3) to avoid
 -- char padding quirks; same constraint, safer comparisons.
@@ -385,7 +393,11 @@ grant insert, update, delete on
   public.airports
 to authenticated;
 
--- ---- supabase/migrations/0003_pipeline.sql ----
+
+-- ======================================================================
+-- supabase/migrations/0003_pipeline.sql
+-- ======================================================================
+
 -- 0003_pipeline: ingestion layer (PLAN.md section 3). Admin-only, except
 -- availability_cache which authenticated users may read (the engine
 -- annotates candidate routes with it).
@@ -471,7 +483,11 @@ grant select, insert, update, delete on
   public.availability_cache
 to service_role;
 
--- ---- supabase/migrations/0004_admin.sql ----
+
+-- ======================================================================
+-- supabase/migrations/0004_admin.sql
+-- ======================================================================
+
 -- 0004_admin: server-side apply/reject for the review queue (PLAN.md §3, §6).
 -- Both functions are SECURITY DEFINER and self-check public.is_admin(), so
 -- they can be granted to `authenticated` while still refusing non-admins.
@@ -688,33 +704,148 @@ grant execute on function public.apply_staging_change(uuid) to authenticated, se
 grant execute on function public.reject_staging_change(uuid) to authenticated, service_role;
 
 
--- ---- supabase/migrations/0005_multi_leg.sql ----
--- 0005_multi_leg: multi-leg (round-trip / open-jaw) award trips + design
--- fields. Additive only — 0001-0004 above are frozen.
+-- ======================================================================
+-- supabase/migrations/0005_legs.sql
+-- ======================================================================
 
+-- 0005_legs: first-class trip legs (round-trip / open-jaw), per-route booking
+-- unit and pricing mode, and design brand fields.
+--
+-- Additive only — migrations 0001-0004 are frozen and applied to the hosted
+-- project (no drops, no renames, no type changes to existing columns). The
+-- plans table is still empty (the consumer app is Phase 3), so the reshaped
+-- engine output in plans.strategies invalidates nothing here.
+
+-- --------------------------------------------------------------------------
+-- award_routes.booking_unit
+-- --------------------------------------------------------------------------
+-- points_oneway stays the price of a SINGLE directional leg in both cases.
+-- 'round_trip' means the route can only be used when it supplies BOTH legs of
+-- a two-leg trip: it may not be paired with a different return route, and it
+-- may not serve a one-way goal. This column replaces the prose that the ANA
+-- seed row used to carry in its notes.
 alter table public.award_routes
   add column booking_unit text not null default 'one_way'
     check (booking_unit in ('one_way', 'round_trip'));
 
-alter table public.card_catalog add column brand_color text;
-alter table public.card_catalog add column logo_url text;
+comment on column public.award_routes.booking_unit is
+  'one_way: an independent directional leg. round_trip: supplies BOTH legs of '
+  'a two-leg trip on one program — never paired with a different return, never '
+  'used for a one-way goal. points_oneway is per direction in both cases.';
 
+comment on column public.award_routes.points_oneway is
+  'Price of a single directional leg. A round_trip route costs points_oneway '
+  'per direction (points_oneway * 2 for the whole round trip).';
+
+-- --------------------------------------------------------------------------
+-- award_routes.pricing_mode
+-- --------------------------------------------------------------------------
+-- Per route, NOT per program: Aeroplan prices partner awards from a fixed
+-- distance chart but Air Canada metal dynamically, so one program legitimately
+-- holds both. V1 ships fixed charts only; this column is recorded but not yet
+-- acted on (no engine branching, no UI treatment) so the research pipeline has
+-- somewhere to put the distinction. Dynamic banding is Phase 7.
+alter table public.award_routes
+  add column pricing_mode text not null default 'fixed'
+    check (pricing_mode in ('fixed', 'dynamic'));
+
+comment on column public.award_routes.pricing_mode is
+  'fixed: chart-priced, points_oneway is exact. dynamic: revenue-linked '
+  '(Phase 7). Property of the route, not the program. Recorded but not yet '
+  'acted on — V1 ships fixed only.';
+
+-- Backfill the one seeded round-trip-only sweet spot. On the hosted project the
+-- ANA route was seeded before booking_unit existed, so it defaulted to
+-- 'one_way'; flip it and normalise its notes to drop the round-trip-only prose
+-- that booking_unit now encodes. On a fresh reset award_routes is empty when
+-- this runs (the seed writes the correct value), so this is a no-op there.
+update public.award_routes
+set booking_unit = 'round_trip',
+    notes = 'seed; points_oneway is half the round-trip price'
+where booking_url like 'https://www.ana.co.jp/%'
+  and cabin = 'business';
+
+-- --------------------------------------------------------------------------
+-- Brand fields for the Phase 3 design (currencies AND card_catalog)
+-- --------------------------------------------------------------------------
+-- Both nullable; nothing populates them yet (research jobs will). The engine
+-- ignores them and the UI must never break when they are null.
+alter table public.currencies
+  add column brand_color text
+    check (brand_color is null or brand_color ~ '^#[0-9A-Fa-f]{6}$'),
+  add column logo_url text;
+
+alter table public.card_catalog
+  add column brand_color text
+    check (brand_color is null or brand_color ~ '^#[0-9A-Fa-f]{6}$'),
+  add column logo_url text;
+
+-- --------------------------------------------------------------------------
+-- goal_legs: a goal's itinerary as an ordered list of legs
+-- --------------------------------------------------------------------------
+-- Origin and destination both live on the leg — that is what makes an open-jaw
+-- (into Tokyo, home from Osaka) expressible. Cabin and month live there too:
+-- people fly business out and economy back, and an open-jaw can straddle a
+-- month boundary. Scope is one or two legs; three or more is out of scope and
+-- the engine rejects it at its input boundary.
 create table public.goal_legs (
   id uuid primary key default gen_random_uuid(),
   goal_id uuid not null references public.goals (id) on delete cascade,
-  leg_index integer not null check (leg_index in (1, 2)),
+  seq integer not null check (seq in (1, 2)),
   origin_airport text not null check (origin_airport ~ '^[A-Z]{3}$'),
   destination_airport text check (destination_airport ~ '^[A-Z]{3}$'),
   destination_region text,
   cabin text not null check (
     cabin in ('economy', 'premium_economy', 'business', 'first')
   ),
+  travel_month text check (travel_month ~ '^\d{4}-(0[1-9]|1[0-2])$'),
+  -- airport preferred; region is the fallback — at least one must be set
   check (destination_airport is not null or destination_region is not null),
-  unique (goal_id, leg_index)
+  unique (goal_id, seq)
 );
 
 create index goal_legs_goal_id_idx on public.goal_legs (goal_id);
 
+-- Backfill every existing goal into one or two legs. Existing goals carry no
+-- trip-type information, so treat them as round trips: leg 1 is the goal's own
+-- origin -> destination, leg 2 is the reverse. A region-only destination has no
+-- airport to reverse from (leg 2's origin must be a real airport), so such a
+-- goal backfills to a single leg — hence "one or two".
+insert into public.goal_legs
+  (goal_id, seq, origin_airport, destination_airport, destination_region,
+   cabin, travel_month)
+select id, 1, origin_airport, destination_airport, destination_region,
+       cabin, travel_month
+from public.goals;
+
+insert into public.goal_legs
+  (goal_id, seq, origin_airport, destination_airport, destination_region,
+   cabin, travel_month)
+select id, 2, destination_airport, origin_airport, null,
+       cabin, travel_month
+from public.goals
+where destination_airport is not null;
+
+-- The goals origin/destination/cabin/month columns are deprecated in favour of
+-- goal_legs. They are left in place and untouched (0001-0004 are frozen); new
+-- code reads goal_legs and nothing writes these columns.
+comment on column public.goals.origin_airport is
+  'Deprecated (0005): read goal_legs instead. Left in place, never written.';
+comment on column public.goals.destination_airport is
+  'Deprecated (0005): read goal_legs instead. Left in place, never written.';
+comment on column public.goals.destination_region is
+  'Deprecated (0005): read goal_legs instead. Left in place, never written.';
+comment on column public.goals.cabin is
+  'Deprecated (0005): read goal_legs instead. Left in place, never written.';
+comment on column public.goals.travel_month is
+  'Deprecated (0005): read goal_legs instead. Left in place, never written.';
+
+-- --------------------------------------------------------------------------
+-- RLS + grants for goal_legs — owner-only, mirroring goals exactly
+-- --------------------------------------------------------------------------
+-- A goal_legs row is visible/writable iff its parent goal belongs to
+-- auth.uid(). New tables are not auto-exposed to the Data API roles, so the
+-- grants are explicit (see 0001 for the pattern).
 alter table public.goal_legs enable row level security;
 
 create policy "own goal legs" on public.goal_legs
@@ -734,64 +865,3 @@ create policy "own goal legs" on public.goal_legs
 
 grant select, insert, update, delete on public.goal_legs to authenticated;
 grant select, insert, update, delete on public.goal_legs to service_role;
-
--- ========================================================================
--- SEED (reference graph + example staging_changes; no airports)
--- ========================================================================
-
-INSERT INTO public.currencies (id, name, kind, alliance, cashback_cpp, transfer_cpp, requires_unlock, is_active, notes) VALUES ('11111111-1111-4111-8111-000000000001', 'Chase Ultimate Rewards', 'bank', NULL, 1, 2, true, true, 'seed');
-INSERT INTO public.currencies (id, name, kind, alliance, cashback_cpp, transfer_cpp, requires_unlock, is_active, notes) VALUES ('11111111-1111-4111-8111-000000000002', 'Amex Membership Rewards', 'bank', NULL, 0.6, 2, true, true, 'seed');
-INSERT INTO public.currencies (id, name, kind, alliance, cashback_cpp, transfer_cpp, requires_unlock, is_active, notes) VALUES ('11111111-1111-4111-8111-000000000003', 'Capital One Miles', 'bank', NULL, 0.5, 1.7, false, true, 'seed');
-INSERT INTO public.currencies (id, name, kind, alliance, cashback_cpp, transfer_cpp, requires_unlock, is_active, notes) VALUES ('11111111-1111-4111-8111-000000000004', 'United MileagePlus', 'airline', 'star', 0, 1.3, false, true, 'seed');
-INSERT INTO public.currencies (id, name, kind, alliance, cashback_cpp, transfer_cpp, requires_unlock, is_active, notes) VALUES ('11111111-1111-4111-8111-000000000005', 'Air Canada Aeroplan', 'airline', 'star', 0, 1.5, false, true, 'seed');
-INSERT INTO public.currencies (id, name, kind, alliance, cashback_cpp, transfer_cpp, requires_unlock, is_active, notes) VALUES ('11111111-1111-4111-8111-000000000006', 'Air France-KLM Flying Blue', 'airline', 'skyteam', 0, 1.3, false, true, 'seed');
-INSERT INTO public.currencies (id, name, kind, alliance, cashback_cpp, transfer_cpp, requires_unlock, is_active, notes) VALUES ('11111111-1111-4111-8111-000000000007', 'ANA Mileage Club', 'airline', 'star', 0, 1.8, false, true, 'seed');
-INSERT INTO public.currencies (id, name, kind, alliance, cashback_cpp, transfer_cpp, requires_unlock, is_active, notes) VALUES ('11111111-1111-4111-8111-000000000008', 'Singapore KrisFlyer', 'airline', 'star', 0, 1.4, false, true, 'seed');
-INSERT INTO public.currencies (id, name, kind, alliance, cashback_cpp, transfer_cpp, requires_unlock, is_active, notes) VALUES ('11111111-1111-4111-8111-000000000009', 'British Airways Avios', 'airline', 'oneworld', 0, 1.4, false, true, 'seed');
-INSERT INTO public.award_routes (id, name, program_currency_id, origin_region, origin_airports, destination_region, destination_airports, cabin, points_oneway, taxes_fees_usd_est, booking_url, notes, is_active, last_verified_at, booking_unit) VALUES ('5ec43858-f471-482a-b7eb-b07d18820493', 'ANA business class to Japan (round-trip)', '11111111-1111-4111-8111-000000000007', 'US West Coast', '{LAX,SFO,SEA}', 'Japan', '{NRT,HND}', 'business', 42500, 250, 'https://www.ana.co.jp/en/us/amc/', 'seed; points_oneway is half the round-trip price', true, NULL, 'round_trip');
-INSERT INTO public.award_routes (id, name, program_currency_id, origin_region, origin_airports, destination_region, destination_airports, cabin, points_oneway, taxes_fees_usd_est, booking_url, notes, is_active, last_verified_at) VALUES ('981b5f19-0a63-4741-a494-c08b62fc434a', 'Flying Blue economy to Europe', '11111111-1111-4111-8111-000000000006', 'US East Coast', '{JFK,BOS,IAD}', 'Europe', '{CDG,AMS}', 'economy', 20000, 120, 'https://www.flyingblue.com/', 'seed', true, NULL);
-INSERT INTO public.award_routes (id, name, program_currency_id, origin_region, origin_airports, destination_region, destination_airports, cabin, points_oneway, taxes_fees_usd_est, booking_url, notes, is_active, last_verified_at) VALUES ('a08fd4db-64b2-4019-a5df-4588a171fc1f', 'United economy to Hawaii', '11111111-1111-4111-8111-000000000004', 'US West Coast', '{LAX,SFO,SAN}', 'Hawaii', '{HNL,OGG}', 'economy', 22500, 6, 'https://www.united.com/', 'seed', true, NULL);
-INSERT INTO public.card_catalog (id, name, issuer, currency_id, annual_fee, unlocks_transfers, affiliate_url, application_rules, is_active, discontinued_at, notes) VALUES ('22222222-2222-4222-8222-000000000001', 'Sapphire Preferred', 'Chase', '11111111-1111-4111-8111-000000000001', 95, true, NULL, NULL, true, NULL, 'seed');
-INSERT INTO public.card_catalog (id, name, issuer, currency_id, annual_fee, unlocks_transfers, affiliate_url, application_rules, is_active, discontinued_at, notes) VALUES ('22222222-2222-4222-8222-000000000002', 'Freedom Unlimited', 'Chase', '11111111-1111-4111-8111-000000000001', 0, false, NULL, NULL, true, NULL, 'seed');
-INSERT INTO public.card_catalog (id, name, issuer, currency_id, annual_fee, unlocks_transfers, affiliate_url, application_rules, is_active, discontinued_at, notes) VALUES ('22222222-2222-4222-8222-000000000003', 'Gold Card', 'American Express', '11111111-1111-4111-8111-000000000002', 325, true, NULL, NULL, true, NULL, 'seed');
-INSERT INTO public.card_catalog (id, name, issuer, currency_id, annual_fee, unlocks_transfers, affiliate_url, application_rules, is_active, discontinued_at, notes) VALUES ('22222222-2222-4222-8222-000000000004', 'Venture X', 'Capital One', '11111111-1111-4111-8111-000000000003', 395, true, NULL, NULL, true, NULL, 'seed');
-INSERT INTO public.card_catalog (id, name, issuer, currency_id, annual_fee, unlocks_transfers, affiliate_url, application_rules, is_active, discontinued_at, notes) VALUES ('22222222-2222-4222-8222-000000000005', 'United Explorer', 'Chase', '11111111-1111-4111-8111-000000000004', 95, false, NULL, NULL, true, NULL, 'seed');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('1f575dbf-1951-42a3-aaf8-2639e44b08e4', '22222222-2222-4222-8222-000000000001', 'dining', 3, NULL, 'seed');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('a8dc94a9-81e4-4aa9-a61b-0fc4f542bfdc', '22222222-2222-4222-8222-000000000001', 'travel', 2, NULL, 'seed');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('fac0cebb-2735-47d2-8dcc-c137681754f9', '22222222-2222-4222-8222-000000000001', 'streaming', 3, NULL, 'seed');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('5cf8c537-1d83-4c58-8a61-7e91810a9ce4', '22222222-2222-4222-8222-000000000001', 'online_retail', 3, NULL, 'seed');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('ba874d5b-f663-4ace-b9a4-579e471f37e4', '22222222-2222-4222-8222-000000000001', 'everything_else', 1, NULL, 'seed');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('3cdc67b6-866a-4174-a30a-7187835243a8', '22222222-2222-4222-8222-000000000002', 'dining', 3, NULL, 'seed');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('dd55aeef-855d-4fdb-a7ca-64d0bcae4d8e', '22222222-2222-4222-8222-000000000002', 'drugstore', 3, NULL, 'seed');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('e3ef9dfb-a5cf-4e9c-8938-4e1ef8f3f499', '22222222-2222-4222-8222-000000000002', 'travel', 5, NULL, 'seed; Chase Travel portal only');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('1f2b73e2-caa9-4be6-957f-17b53d464e0e', '22222222-2222-4222-8222-000000000002', 'everything_else', 1.5, NULL, 'seed');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('cea87a87-ce2f-47de-b0aa-fafb16a5a293', '22222222-2222-4222-8222-000000000003', 'dining', 4, 4166, 'seed; $50k/yr cap approximated monthly');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('c73f7970-c4e9-4386-81d0-3822627797d6', '22222222-2222-4222-8222-000000000003', 'groceries', 4, 2083, 'seed; $25k/yr cap approximated monthly');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('622651e4-b732-4ac1-a46d-ed117c9ca2e5', '22222222-2222-4222-8222-000000000003', 'travel', 3, NULL, 'seed; flights booked direct');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('f1e031b2-b4ef-45b2-80fd-d508b9e0558a', '22222222-2222-4222-8222-000000000003', 'everything_else', 1, NULL, 'seed');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('90201870-f209-4786-80ab-b4c863004160', '22222222-2222-4222-8222-000000000004', 'travel', 5, NULL, 'seed; Capital One Travel portal');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('1a6e84ef-d35d-463c-8054-1dfd53a526bf', '22222222-2222-4222-8222-000000000004', 'everything_else', 2, NULL, 'seed');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('0c92e494-938e-4eb4-9320-4533c3eb5e5e', '22222222-2222-4222-8222-000000000005', 'dining', 2, NULL, 'seed');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('3acf1f40-29d5-4ccf-a1d9-1737ab284ab2', '22222222-2222-4222-8222-000000000005', 'travel', 2, NULL, 'seed; United purchases');
-INSERT INTO public.earning_rates (id, card_id, category, rate, cap_monthly_usd, notes) VALUES ('c832bc0e-a592-4f21-9abf-5ae0ede8bd74', '22222222-2222-4222-8222-000000000005', 'everything_else', 1, NULL, 'seed');
-INSERT INTO public.staging_changes (id, target_table, target_id, proposed, diff, source, confidence, source_urls, status, created_at, reviewed_at, reviewed_by) VALUES ('55555555-5555-4555-8555-000000000001', 'transfer_bonuses', NULL, '"{\"transfer_partner_id\":\"4bdc7165-bf32-415d-9ba3-bfea36bc2da4\",\"bonus_pct\":40,\"starts_at\":\"2026-08-15T00:00:00Z\",\"ends_at\":\"2026-10-15T23:59:59Z\",\"source_url\":\"https://www.americanexpress.com/transfer-bonus\",\"status\":\"draft\"}"', NULL, 'claude_research', 0.86, '{https://www.americanexpress.com/transfer-bonus,https://frequentmiler.com/amex-transfer-bonuses/}', 'pending', '2026-07-22 10:35:54.541075+00', NULL, NULL);
-INSERT INTO public.staging_changes (id, target_table, target_id, proposed, diff, source, confidence, source_urls, status, created_at, reviewed_at, reviewed_by) VALUES ('55555555-5555-4555-8555-000000000002', 'currencies', '11111111-1111-4111-8111-000000000003', '"{\"transfer_cpp\":1.85}"', '"{\"transfer_cpp\":{\"from\":1.7,\"to\":1.85}}"', 'claude_research', 0.7, '{https://thepointsguy.com/loyalty-programs/points-valuations/}', 'pending', '2026-07-22 10:35:54.544616+00', NULL, NULL);
-INSERT INTO public.staging_changes (id, target_table, target_id, proposed, diff, source, confidence, source_urls, status, created_at, reviewed_at, reviewed_by) VALUES ('55555555-5555-4555-8555-000000000003', 'welcome_offers', '33333333-3333-4333-8333-000000000001', '"{\"points\":75000,\"min_spend_usd\":5000}"', '"{\"points\":{\"from\":60000,\"to\":75000},\"min_spend_usd\":{\"from\":4000,\"to\":5000}}"', 'manual', 0.95, '{https://www.chase.com/sapphire-preferred}', 'pending', '2026-07-22 10:35:54.546006+00', NULL, NULL);
-INSERT INTO public.transfer_partners (id, from_currency_id, to_currency_id, ratio_num, ratio_den, transfer_hours_est, min_transfer, increment, is_active, notes) VALUES ('9d123765-4e06-4de1-8698-1f3dcb63074c', '11111111-1111-4111-8111-000000000001', '11111111-1111-4111-8111-000000000004', 1, 1, 0, 1000, 1000, true, 'seed');
-INSERT INTO public.transfer_partners (id, from_currency_id, to_currency_id, ratio_num, ratio_den, transfer_hours_est, min_transfer, increment, is_active, notes) VALUES ('40d5b63e-cf35-44f4-8be1-892565581f2f', '11111111-1111-4111-8111-000000000001', '11111111-1111-4111-8111-000000000005', 1, 1, 0, 1000, 1000, true, 'seed');
-INSERT INTO public.transfer_partners (id, from_currency_id, to_currency_id, ratio_num, ratio_den, transfer_hours_est, min_transfer, increment, is_active, notes) VALUES ('928e9e5a-6999-4707-a789-893acf38533b', '11111111-1111-4111-8111-000000000001', '11111111-1111-4111-8111-000000000006', 1, 1, 0, 1000, 1000, true, 'seed');
-INSERT INTO public.transfer_partners (id, from_currency_id, to_currency_id, ratio_num, ratio_den, transfer_hours_est, min_transfer, increment, is_active, notes) VALUES ('49c0c5c9-5053-4f19-afed-80888b021459', '11111111-1111-4111-8111-000000000001', '11111111-1111-4111-8111-000000000008', 1, 1, 24, 1000, 1000, true, 'seed');
-INSERT INTO public.transfer_partners (id, from_currency_id, to_currency_id, ratio_num, ratio_den, transfer_hours_est, min_transfer, increment, is_active, notes) VALUES ('3a2d5f0b-79c0-42f7-88f2-f5178f755343', '11111111-1111-4111-8111-000000000001', '11111111-1111-4111-8111-000000000009', 1, 1, 0, 1000, 1000, true, 'seed');
-INSERT INTO public.transfer_partners (id, from_currency_id, to_currency_id, ratio_num, ratio_den, transfer_hours_est, min_transfer, increment, is_active, notes) VALUES ('4bdc7165-bf32-415d-9ba3-bfea36bc2da4', '11111111-1111-4111-8111-000000000002', '11111111-1111-4111-8111-000000000007', 1, 1, 48, 1000, 1000, true, 'seed');
-INSERT INTO public.transfer_partners (id, from_currency_id, to_currency_id, ratio_num, ratio_den, transfer_hours_est, min_transfer, increment, is_active, notes) VALUES ('e8a07349-6b15-4500-b062-7abe67bebc60', '11111111-1111-4111-8111-000000000002', '11111111-1111-4111-8111-000000000005', 1, 1, 0, 1000, 1000, true, 'seed');
-INSERT INTO public.transfer_partners (id, from_currency_id, to_currency_id, ratio_num, ratio_den, transfer_hours_est, min_transfer, increment, is_active, notes) VALUES ('3e0572bd-eef9-4039-b391-dfd09ca6c181', '11111111-1111-4111-8111-000000000002', '11111111-1111-4111-8111-000000000006', 1, 1, 0, 1000, 1000, true, 'seed');
-INSERT INTO public.transfer_partners (id, from_currency_id, to_currency_id, ratio_num, ratio_den, transfer_hours_est, min_transfer, increment, is_active, notes) VALUES ('57b21bc6-19b6-4f31-a647-bed46f9092aa', '11111111-1111-4111-8111-000000000002', '11111111-1111-4111-8111-000000000009', 1, 1, 0, 1000, 1000, true, 'seed');
-INSERT INTO public.transfer_partners (id, from_currency_id, to_currency_id, ratio_num, ratio_den, transfer_hours_est, min_transfer, increment, is_active, notes) VALUES ('6644556b-6770-4929-9853-e0ab1805bdc7', '11111111-1111-4111-8111-000000000003', '11111111-1111-4111-8111-000000000005', 1, 1, 0, 1000, 100, true, 'seed');
-INSERT INTO public.transfer_partners (id, from_currency_id, to_currency_id, ratio_num, ratio_den, transfer_hours_est, min_transfer, increment, is_active, notes) VALUES ('116a847a-c0cc-449a-877d-e07e07b00de5', '11111111-1111-4111-8111-000000000003', '11111111-1111-4111-8111-000000000006', 1, 1, 0, 1000, 100, true, 'seed');
-INSERT INTO public.transfer_partners (id, from_currency_id, to_currency_id, ratio_num, ratio_den, transfer_hours_est, min_transfer, increment, is_active, notes) VALUES ('9cef4a99-2d8a-454d-b104-a13946e989e9', '11111111-1111-4111-8111-000000000003', '11111111-1111-4111-8111-000000000008', 1, 1, 24, 1000, 100, true, 'seed');
-INSERT INTO public.transfer_bonuses (id, transfer_partner_id, bonus_pct, starts_at, ends_at, source_url, status) VALUES ('44444444-4444-4444-8444-000000000001', '3e0572bd-eef9-4039-b391-dfd09ca6c181', 25, '2026-07-01 00:00:00+00', '2026-09-15 23:59:59+00', 'seed', 'approved');
-INSERT INTO public.welcome_offers (id, card_id, points, min_spend_usd, window_months, ends_at, source_url, is_active) VALUES ('33333333-3333-4333-8333-000000000001', '22222222-2222-4222-8222-000000000001', 60000, 4000, 3, NULL, 'seed', true);
-INSERT INTO public.welcome_offers (id, card_id, points, min_spend_usd, window_months, ends_at, source_url, is_active) VALUES ('33333333-3333-4333-8333-000000000002', '22222222-2222-4222-8222-000000000002', 20000, 500, 3, NULL, 'seed', true);
-INSERT INTO public.welcome_offers (id, card_id, points, min_spend_usd, window_months, ends_at, source_url, is_active) VALUES ('33333333-3333-4333-8333-000000000003', '22222222-2222-4222-8222-000000000003', 60000, 6000, 6, NULL, 'seed', true);
-INSERT INTO public.welcome_offers (id, card_id, points, min_spend_usd, window_months, ends_at, source_url, is_active) VALUES ('33333333-3333-4333-8333-000000000004', '22222222-2222-4222-8222-000000000004', 75000, 4000, 3, NULL, 'seed', true);
-INSERT INTO public.welcome_offers (id, card_id, points, min_spend_usd, window_months, ends_at, source_url, is_active) VALUES ('33333333-3333-4333-8333-000000000005', '22222222-2222-4222-8222-000000000005', 50000, 3000, 3, NULL, 'seed', true);

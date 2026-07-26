@@ -89,15 +89,19 @@ neither Docker nor the Supabase CLI.
 **Vercel never runs migrations or the seed**, so the schema and data must
 exist before (or shortly after) the first deploy. Two ways to set them up:
 
-- **No local tooling (easiest):** open your project's **SQL Editor**, paste
-  the contents of [`deploy/hosted-setup.sql`](deploy/hosted-setup.sql), and
-  run it once. That creates the full schema (migrations 0001–0004) and seeds
-  the reference graph + example review-queue items — no Node, no `psql`, no
-  Docker. (It leaves out the ~4,000 airports, which the admin portal doesn't
-  need; load them later with `pnpm seed` if you want them for Phase 3.)
-- **With local tooling:** follow "Using a hosted Supabase project" above
-  through `pnpm db:migrate` and `pnpm seed`, run once against your project's
-  connection string. This also loads the airports.
+- **Schema with no local tooling (easiest):** open your project's **SQL
+  Editor**, paste the contents of
+  [`deploy/hosted-setup.sql`](deploy/hosted-setup.sql), and run it once. That
+  creates the full schema (migrations 0001–0005) — no Node, no `psql`, no
+  Docker. It is **schema only**: it seeds no data. The reference graph and the
+  ~4,000 airport rows both load via `pnpm seed` (below). Until airports are
+  loaded, airport pickers degrade to accepting a validated raw IATA code
+  (`^[A-Z]{3}$`) instead of autocomplete. `hosted-setup.sql` is generated from
+  the migrations by `bash scripts/gen-hosted-setup.sh` — never hand-edit it.
+- **Data (and/or schema) with local tooling:** follow "Using a hosted Supabase
+  project" above through `pnpm db:migrate` and `pnpm seed`, run once against
+  your project's connection string. `pnpm seed` loads the reference graph, the
+  example review-queue items, and the airports.
 
 ### 2. Import the repo
 

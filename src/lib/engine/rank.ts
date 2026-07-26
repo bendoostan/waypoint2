@@ -42,12 +42,18 @@ export function assignTripTier(legTiers: ReachabilityTier[]): ReachabilityTier {
   return worst;
 }
 
+/** The fields ranking needs — satisfied by a full Strategy or a core. */
+export type Rankable = Pick<
+  Strategy,
+  "tier" | "total_opportunity_cost_usd" | "transfer_hops" | "max_transfer_hours"
+> & { legs: { route_name: string }[] };
+
 /** Stable trip name for tie-breaking — every leg's route, in order. */
-function tripName(strategy: Strategy): string {
+function tripName(strategy: Rankable): string {
   return strategy.legs.map((l) => l.route_name).join(" + ");
 }
 
-export function rankStrategies(strategies: Strategy[]): Strategy[] {
+export function rankStrategies<T extends Rankable>(strategies: T[]): T[] {
   return [...strategies].sort((a, b) => {
     const tier = TIER_ORDER[a.tier] - TIER_ORDER[b.tier];
     if (tier !== 0) return tier;

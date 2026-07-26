@@ -14,7 +14,11 @@ export const transferStepSchema = z.object({
   transfer_hours_est: z.number().int().nonnegative(),
 });
 
-export const allocationSchema = z.object({
+// A currency's contribution to one destination program. Base shape (no leg
+// tag) is what the solver works in; the engine tags each with leg_seq before
+// it reaches the output, so a currency feeding both legs of an open-jaw
+// becomes two entries (one per leg) in the trip-level allocations array.
+export const baseAllocationSchema = z.object({
   currency_id: z.string().uuid(),
   currency_name: z.string(),
   points_used: z.number().int().nonnegative(),
@@ -22,6 +26,10 @@ export const allocationSchema = z.object({
   opportunity_cost_usd: z.number().nonnegative(),
   // empty path = points already live in the target program
   path: z.array(transferStepSchema).max(2),
+});
+
+export const allocationSchema = baseAllocationSchema.extend({
+  leg_seq: z.union([z.literal(1), z.literal(2)]),
 });
 
 export const cardRecommendationSchema = z.object({
@@ -54,9 +62,23 @@ export const timelineEventSchema = z.object({
   description: z.string(),
 });
 
+// One leg's projected points at a given month. A single trip-wide
+// projected_balance is meaningless once the legs target different programs
+// (one point total across two currencies), so balances are per leg.
+export const projectedLegBalanceSchema = z.object({
+  seq: z.union([z.literal(1), z.literal(2)]),
+  projected_balance: z.number().int().nonnegative(),
+});
+
 export const timelineEntrySchema = z.object({
   month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
-  projected_balance: z.number().int().nonnegative(),
+  projected_balances: z.array(projectedLegBalanceSchema).min(1).max(2),
+  /**
+   * Progress toward the trip's TOTAL requirement, 0-100. The design's progress
+   * meter consumes this: sum of each leg's covered-toward-need over
+   * points_needed_total, so one leg's surplus can't mask another's shortfall.
+   */
+  projected_pct: z.number().int().min(0).max(100),
   events: z.array(timelineEventSchema),
 });
 
@@ -79,41 +101,41 @@ export const availabilitySchema = z.object({
 });
 
 /**
- * One direction of a trip within a strategy. A round_trip-unit redemption is
- * represented by a SINGLE LegPlan with covers_round_trip=true carrying the
- * whole (both-directions) need and one allocation set — so the UI can render
- * "one booking, round trip" honestly. An open-jaw / two one-ways emits two
- * LegPlans (leg_index 1 and 2), each with its own route, program, and
- * allocations, both drawn from the shared wallet.
+ * One directional flight within a trip. A round trip is two LegPlans that name
+ * the SAME route_id/program (it supplies both legs of one atomic booking); an
+ * open-jaw or two one-ways is two LegPlans with their own routes and programs.
+ * A one-way goal is a single LegPlan. Allocations are NOT here — they live at
+ * the trip level, tagged with leg_seq, because both legs draw one wallet.
  */
 export const legPlanSchema = z.object({
-  leg_index: z.union([z.literal(1), z.literal(2)]),
-  covers_round_trip: z.boolean(),
+  seq: z.union([z.literal(1), z.literal(2)]),
   route_id: z.string().uuid(),
   route_name: z.string(),
   program_currency_id: z.string().uuid(),
   program_currency_name: z.string(),
   cabin: z.string(),
   match_type: z.enum(["airport", "region"]),
+  // Recorded from the route; V1 never branches on it (always 'fixed').
+  pricing_mode: z.enum(["fixed", "dynamic"]),
   points_needed: z.number().int().positive(),
   reachable_points: z.number().int().nonnegative(),
   gap: z.number().int().nonnegative(),
-  allocations: z.array(allocationSchema),
   taxes_fees_usd_est: z.number().int().nonnegative(),
   availability: availabilitySchema,
 });
 
 export const strategySchema = z.object({
-  // 'round_trip_unit' = one atomic round-trip booking on one program;
-  // 'one_way_each' = one or two independent one-way redemptions.
-  booking: z.enum(["one_way_each", "round_trip_unit"]),
   legs: z.array(legPlanSchema).min(1).max(2),
+  // One shared wallet feeds the whole trip; each allocation names the leg it
+  // serves. A currency feeding both legs appears twice, once per leg_seq.
+  allocations: z.array(allocationSchema),
   travelers: z.number().int().positive(),
-  // Trip totals: sums over legs (points_needed, reachable_points, gap, taxes).
-  points_needed: z.number().int().positive(),
-  reachable_points: z.number().int().nonnegative(),
-  gap: z.number().int().nonnegative(),
-  taxes_fees_usd_est: z.number().int().nonnegative(),
+  // Trip totals: sums over legs. reachable_points is deliberately per-leg only
+  // (summing points across two programs is meaningless), so there is no
+  // trip-level reachable total.
+  points_needed_total: z.number().int().positive(),
+  gap_total: z.number().int().nonnegative(),
+  taxes_fees_usd_est_total: z.number().int().nonnegative(),
   total_opportunity_cost_usd: z.number().nonnegative(),
   transfer_hops: z.number().int().nonnegative(),
   max_transfer_hours: z.number().int().nonnegative(),
@@ -129,18 +151,37 @@ export const strategySchema = z.object({
   rationale: z.string().min(1),
 });
 
+/**
+ * The one-cabin-down teaser (Task 4), attached OUTSIDE the ranked strategies —
+ * it answers a different question ("could you drop a cabin?") and must never
+ * outrank the trip the person actually asked for. Just enough to render a
+ * one-line teaser: no allocations, timeline, or transfer path. Null when the
+ * goal is already economy or no route exists at the lower cabin.
+ */
+export const cabinAlternativeSchema = z.object({
+  cabin: z.string(),
+  points_needed_total: z.number().int().positive(),
+  tier: reachabilityTierSchema,
+  months_to_goal: z.number().int().nonnegative().nullable(),
+  requires_card: z.boolean(),
+});
+
 export const planResultSchema = z.object({
   strategies: z.array(strategySchema),
+  cabin_alternative: cabinAlternativeSchema.nullable(),
 });
 
 export type TransferStep = z.infer<typeof transferStepSchema>;
+export type BaseAllocation = z.infer<typeof baseAllocationSchema>;
 export type Allocation = z.infer<typeof allocationSchema>;
 export type CardRecommendation = z.infer<typeof cardRecommendationSchema>;
 export type UnlockOpportunity = z.infer<typeof unlockOpportunitySchema>;
 export type TimelineEvent = z.infer<typeof timelineEventSchema>;
+export type ProjectedLegBalance = z.infer<typeof projectedLegBalanceSchema>;
 export type TimelineEntry = z.infer<typeof timelineEntrySchema>;
 export type ReachabilityTier = z.infer<typeof reachabilityTierSchema>;
 export type Availability = z.infer<typeof availabilitySchema>;
 export type LegPlan = z.infer<typeof legPlanSchema>;
 export type Strategy = z.infer<typeof strategySchema>;
+export type CabinAlternative = z.infer<typeof cabinAlternativeSchema>;
 export type PlanResult = z.infer<typeof planResultSchema>;

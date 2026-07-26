@@ -4,11 +4,11 @@
 // hops, then lower transfer hours.
 import { deliverThrough, minimalSentFor } from "./reachability";
 import type { PathQuote, Reachability } from "./reachability";
-import type { Allocation } from "./schema";
+import type { BaseAllocation } from "./schema";
 import type { Currency, EffectiveCurrency } from "./types";
 
 export type SolveResult = {
-  allocations: Allocation[];
+  allocations: BaseAllocation[];
   reachable_points: number;
   gap: number;
   total_opportunity_cost_usd: number;
@@ -33,7 +33,7 @@ function toAllocation(
   option: SourceOption,
   sent: number,
   currencyName: (id: string) => string
-): Allocation {
+): BaseAllocation {
   const delivery = deliverThrough(option.quote.edges, sent);
   return {
     currency_id: option.quote.source_currency_id,
@@ -50,7 +50,7 @@ function toAllocation(
 }
 
 export type Attempt = {
-  allocations: Allocation[];
+  allocations: BaseAllocation[];
   cost: number;
   hops: number;
   max_hours: number;
@@ -66,7 +66,7 @@ function attemptFill(
   // optimal for linear costs; increment rounding is handled by
   // minimalSentFor on the edge grid.
   const ordered = [...subset].sort((a, b) => a.marginal_cost - b.marginal_cost);
-  const allocations: Allocation[] = [];
+  const allocations: BaseAllocation[] = [];
   let remaining = needed;
   let cost = 0;
   let hops = 0;
@@ -201,7 +201,7 @@ export function solveCandidate(
   return summarize(best.allocations, needed);
 }
 
-function summarize(allocations: Allocation[], needed: number): SolveResult {
+function summarize(allocations: BaseAllocation[], needed: number): SolveResult {
   const delivered = allocations.reduce((s, a) => s + a.points_delivered, 0);
   const reachable = Math.min(needed, delivered);
   return {

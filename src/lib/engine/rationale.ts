@@ -1,7 +1,8 @@
 // Rationale text is template strings over computed numbers — v1 by design
 // (PLAN.md §4): fast, honest, testable. No AI anywhere near these numbers.
-// The trip is narrated leg by leg: each leg names its route, program, and gap.
-import type { LegPlan, Strategy } from "./schema";
+// The trip is narrated leg by leg: each leg names its route, program, and gap,
+// then the shared-wallet allocations that feed it.
+import type { Allocation, LegPlan, Strategy } from "./schema";
 
 function fmt(n: number): string {
   return n.toLocaleString("en-US");
@@ -14,27 +15,18 @@ function usdFmt(n: number): string {
   })}`;
 }
 
-function legLabel(leg: LegPlan): string {
-  if (leg.covers_round_trip) return `Round trip on ${leg.route_name}`;
-  return `Leg ${leg.leg_index} — ${leg.route_name}`;
+function isRoundTrip(legs: LegPlan[]): boolean {
+  return legs.length === 2 && legs[0]!.route_id === legs[1]!.route_id;
 }
 
-function legParts(leg: LegPlan): string[] {
-  const parts: string[] = [];
-  const needed = fmt(leg.points_needed);
-  if (leg.gap <= 0) {
-    parts.push(
-      `${legLabel(leg)}: your wallet covers all ${needed} ${leg.program_currency_name} points.`
-    );
-  } else {
-    parts.push(
-      `${legLabel(leg)}: needs ${needed} ${leg.program_currency_name} points; you can reach ${fmt(
-        leg.reachable_points
-      )} today, leaving a ${fmt(leg.gap)}-point gap.`
-    );
-  }
+function legLabel(leg: LegPlan, roundTrip: boolean, multi: boolean): string {
+  if (roundTrip) return `Round trip on ${leg.route_name}`;
+  return multi ? `Leg ${leg.seq} — ${leg.route_name}` : leg.route_name;
+}
 
-  for (const a of leg.allocations) {
+function allocationParts(allocations: Allocation[]): string[] {
+  const parts: string[] = [];
+  for (const a of allocations) {
     if (a.path.length === 0) {
       parts.push(
         `Use ${fmt(a.points_used)} ${a.currency_name} directly (worth ${usdFmt(
@@ -63,34 +55,48 @@ export function rationale(
   strategy: Omit<Strategy, "rationale" | "timeline">
 ): string {
   const parts: string[] = [];
-  const totalNeeded = fmt(strategy.points_needed);
+  const totalNeeded = fmt(strategy.points_needed_total);
+  const roundTrip = isRoundTrip(strategy.legs);
+  const multi = strategy.legs.length > 1;
 
   if (strategy.tier === "bookable_now") {
-    const bookLabel =
-      strategy.booking === "round_trip_unit"
-        ? "in one round-trip booking"
-        : strategy.legs.length > 1
-          ? "across both legs"
-          : "";
+    const bookLabel = roundTrip
+      ? " in one round-trip booking"
+      : multi
+        ? " across both legs"
+        : "";
     parts.push(
-      `Bookable now: your wallet covers all ${totalNeeded} points for this trip${
-        bookLabel ? ` ${bookLabel}` : ""
-      }.`
+      `Bookable now: your wallet covers all ${totalNeeded} points for this trip${bookLabel}.`
     );
   } else {
     parts.push(
-      `This trip needs ${totalNeeded} points; you can reach ${fmt(
-        strategy.reachable_points
-      )} today, leaving a ${fmt(strategy.gap)}-point gap.`
+      `This trip needs ${totalNeeded} points; you have a ${fmt(
+        strategy.gap_total
+      )}-point gap.`
     );
   }
 
   for (const leg of strategy.legs) {
-    parts.push(...legParts(leg));
+    const needed = fmt(leg.points_needed);
+    if (leg.gap <= 0) {
+      parts.push(
+        `${legLabel(leg, roundTrip, multi)}: your wallet covers all ${needed} ${leg.program_currency_name} points.`
+      );
+    } else {
+      parts.push(
+        `${legLabel(leg, roundTrip, multi)}: needs ${needed} ${leg.program_currency_name} points; you can reach ${fmt(
+          leg.reachable_points
+        )} today, leaving a ${fmt(leg.gap)}-point gap.`
+      );
+    }
+    // The shared-wallet moves that feed this leg (trip-level, tagged by seq).
+    const legAllocs = strategy.allocations.filter((a) => a.leg_seq === leg.seq);
+    parts.push(...allocationParts(legAllocs));
+    if (roundTrip) break; // both legs share one booking; narrate it once
   }
 
   const card = strategy.recommended_card;
-  if (card !== null && strategy.gap > 0) {
+  if (card !== null && strategy.gap_total > 0) {
     parts.push(
       `Open the ${card.issuer} ${card.card_name}: its ${fmt(
         card.offer_points

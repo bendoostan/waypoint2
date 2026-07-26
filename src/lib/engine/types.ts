@@ -36,44 +36,41 @@ export type ReferenceData = {
   awardRoutes: AwardRoute[];
 };
 
-/** The slice of a goal row the engine needs. */
-export type EngineGoal = Pick<
-  GoalRow,
-  | "origin_airport"
-  | "destination_airport"
-  | "destination_region"
-  | "cabin"
-  | "travel_month"
-  | "num_travelers"
-  | "flexibility"
->;
-
 /**
- * One directional flight in a trip (leg 1 = outbound, leg 2 = return). Each
- * leg carries its own origin/destination/cabin and is route-matched
- * independently; the two legs draw from ONE shared wallet. A round trip is two
+ * One directional flight in a trip (seq 1 = outbound, seq 2 = return). Each
+ * leg carries its own origin/destination/cabin/month and is route-matched
+ * independently; the legs draw from ONE shared wallet. A round trip is two
  * legs whose endpoints reverse; an open-jaw is two legs that do not.
  */
 export type EngineLeg = {
-  leg_index: 1 | 2;
+  seq: 1 | 2;
   origin_airport: string;
   destination_airport: string | null;
   destination_region: string | null;
   cabin: string;
+  /** 'YYYY-MM' or null — legs can straddle a month boundary (open-jaw). */
+  travel_month: string | null;
+};
+
+/**
+ * Trip-level goal fields plus the itinerary. Per-leg origin/destination/cabin
+ * now live on the legs (goal_legs), not here — a round trip is two explicit
+ * legs, not one route priced twice.
+ */
+export type EngineGoal = {
+  num_travelers: GoalRow["num_travelers"];
+  flexibility: GoalRow["flexibility"];
+  /**
+   * Ordered by seq. Length 1 (one-way) or 2 (round trip or open-jaw);
+   * generatePlan throws on 0 or 3+. num_travelers multiplies each leg's need.
+   */
+  legs: EngineLeg[];
 };
 
 export type EngineInput = {
   wallet: WalletCard[];
   referenceData: ReferenceData;
-  /** Kept for trip-wide fields the legs don't carry (num_travelers). */
   goal: EngineGoal;
-  /**
-   * The itinerary, ordered by leg_index. Length 1 (one-way) or 2 (round trip
-   * or open-jaw); generatePlan throws on 0 or 3+. num_travelers multiplies
-   * each leg's need. Replaces the old `legs: 1 | 2` multiplier: a round trip
-   * is now two explicit legs, not one route priced twice.
-   */
-  legs: EngineLeg[];
   availability: AvailabilityRow[];
   /**
    * profiles.monthly_spend — category -> USD/month. Not listed in the

@@ -43,6 +43,8 @@ export const seedCurrencies: Currency[] = currencies.map((c) => ({
   requires_unlock: c.requires_unlock ?? false,
   is_active: c.is_active ?? true,
   notes: c.notes ?? null,
+  brand_color: c.brand_color ?? null,
+  logo_url: c.logo_url ?? null,
 }));
 
 export const seedCards: CardCatalog[] = cards.map((c) => ({
@@ -133,6 +135,7 @@ export const seedAwardRoutes: AwardRoute[] = awardRoutes.map((r) => ({
   is_active: r.is_active ?? true,
   last_verified_at: r.last_verified_at ?? null,
   booking_unit: r.booking_unit ?? "one_way",
+  pricing_mode: r.pricing_mode ?? "fixed",
 }));
 
 export const seedReferenceData: ReferenceData = {

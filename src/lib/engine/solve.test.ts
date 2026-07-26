@@ -30,6 +30,8 @@ function mkCurrency(
     requires_unlock: false,
     is_active: true,
     notes: null,
+    brand_color: null,
+    logo_url: null,
     ...over,
   };
 }
@@ -125,11 +127,12 @@ describe("solveCandidate is exact, not greedy", () => {
 
 function leg(over: Partial<EngineLeg> = {}): EngineLeg {
   return {
-    leg_index: 1,
+    seq: 1,
     origin_airport: "JFK",
     destination_airport: null,
     destination_region: null,
     cabin: "economy",
+    travel_month: null,
     ...over,
   };
 }
@@ -197,7 +200,7 @@ describe("matchRoundTripRoutes (round_trip routes cover both legs)", () => {
     cabin: "business",
   });
   const back = leg({
-    leg_index: 2,
+    seq: 2,
     origin_airport: "HND",
     destination_airport: "SFO",
     cabin: "business",
@@ -212,7 +215,7 @@ describe("matchRoundTripRoutes (round_trip routes cover both legs)", () => {
 
   it("rejects legs that are not exact reverses", () => {
     const notReverse = leg({
-      leg_index: 2,
+      seq: 2,
       origin_airport: "SFO",
       destination_airport: "HND",
       cabin: "business",

@@ -43,23 +43,26 @@ export type EngineInputRows = {
 function buildLegs(goal: GoalRow, goalLegs: GoalLegRow[]): EngineLeg[] {
   if (goalLegs.length > 0) {
     return [...goalLegs]
-      .sort((a, b) => a.leg_index - b.leg_index)
+      .sort((a, b) => a.seq - b.seq)
       .map((l) => ({
-        leg_index: l.leg_index === 2 ? 2 : 1,
+        seq: l.seq === 2 ? 2 : 1,
         origin_airport: l.origin_airport,
         destination_airport: l.destination_airport,
         destination_region: l.destination_region,
         cabin: l.cabin,
+        travel_month: l.travel_month,
       }));
   }
-  // Fallback: treat the goal's own columns as a single (leg 1) itinerary.
+  // Fallback: synthesize a single (seq 1) leg from the goal's deprecated
+  // columns, for any goal that predates its goal_legs backfill.
   return [
     {
-      leg_index: 1,
+      seq: 1,
       origin_airport: goal.origin_airport,
       destination_airport: goal.destination_airport,
       destination_region: goal.destination_region,
       cabin: goal.cabin,
+      travel_month: goal.travel_month,
     },
   ];
 }
@@ -98,13 +101,9 @@ export function buildEngineInput(rows: EngineInputRows): EngineInput {
   }
 
   const goal: EngineGoal = {
-    origin_airport: rows.goal.origin_airport,
-    destination_airport: rows.goal.destination_airport,
-    destination_region: rows.goal.destination_region,
-    cabin: rows.goal.cabin,
-    travel_month: rows.goal.travel_month,
     num_travelers: rows.goal.num_travelers,
     flexibility: rows.goal.flexibility,
+    legs: buildLegs(rows.goal, rows.goalLegs ?? []),
   };
 
   return {
@@ -119,7 +118,6 @@ export function buildEngineInput(rows: EngineInputRows): EngineInput {
       awardRoutes: rows.awardRoutes,
     },
     goal,
-    legs: buildLegs(rows.goal, rows.goalLegs ?? []),
     availability: rows.availability,
     monthlySpend: toMonthlySpend(rows.profile?.monthly_spend ?? null),
     now: rows.now,

@@ -15,33 +15,30 @@ import type {
 
 const NOW = new Date("2026-08-01T00:00:00Z");
 
-// A round trip is two explicit legs whose endpoints reverse (SFO->HND, HND->SFO).
+// A round trip is two explicit legs whose endpoints reverse (SFO<->HND).
 const japanLegs: EngineLeg[] = [
   {
-    leg_index: 1,
+    seq: 1,
     origin_airport: "SFO",
     destination_airport: "HND",
     destination_region: "Japan",
     cabin: "business",
+    travel_month: null,
   },
   {
-    leg_index: 2,
+    seq: 2,
     origin_airport: "HND",
     destination_airport: "SFO",
     destination_region: "Japan",
     cabin: "business",
+    travel_month: null,
   },
 ];
 
-// Only num_travelers is read from the goal now; legs carry O/D/cabin.
 const japanGoal: EngineGoal = {
-  origin_airport: "SFO",
-  destination_airport: "HND",
-  destination_region: "Japan",
-  cabin: "business",
-  travel_month: null,
   num_travelers: 1,
   flexibility: "flexible_month",
+  legs: japanLegs,
 };
 
 function input(overrides: Partial<EngineInput>): EngineInput {
@@ -49,7 +46,6 @@ function input(overrides: Partial<EngineInput>): EngineInput {
     wallet: [],
     referenceData: seedReferenceData,
     goal: japanGoal,
-    legs: japanLegs,
     availability: [],
     monthlySpend: {},
     now: NOW,
@@ -57,8 +53,13 @@ function input(overrides: Partial<EngineInput>): EngineInput {
   };
 }
 
+/** A round trip is two legs on ONE route (same program, one booking). */
+function isRoundTrip(s: { legs: { route_id: string }[] }): boolean {
+  return s.legs.length === 2 && s.legs[0]!.route_id === s.legs[1]!.route_id;
+}
+
 describe("generatePlan — Freedom unlock end to end", () => {
-  it("prices the round trip as one ANA round_trip-unit and shows the $800 unlock", () => {
+  it("prices the round trip as one ANA round-trip unit and shows the $800 unlock", () => {
     const result = generatePlan(
       input({ wallet: [walletCard(cardByName("Freedom Unlimited"), 80_000)] })
     );
@@ -66,19 +67,21 @@ describe("generatePlan — Freedom unlock end to end", () => {
       s.legs[0]!.route_name.includes("ANA")
     );
     expect(ana).toBeDefined();
-    expect(ana!.booking).toBe("round_trip_unit");
-    expect(ana!.legs).toHaveLength(1);
-    expect(ana!.legs[0]!.covers_round_trip).toBe(true);
-    expect(ana!.points_needed).toBe(85_000); // 42,500 × 2 directions
-    expect(ana!.reachable_points).toBe(0); // locked UR is not a source
-    expect(ana!.gap).toBe(85_000);
+    expect(isRoundTrip(ana!)).toBe(true); // both legs on the one ANA route
+    expect(ana!.legs).toHaveLength(2);
+    expect(ana!.points_needed_total).toBe(85_000); // 42,500 × 2 directions
+    // Locked UR is not a transfer source, so nothing is reachable (case 7).
+    expect(ana!.legs.every((l) => l.reachable_points === 0)).toBe(true);
+    expect(ana!.gap_total).toBe(85_000);
+    expect(ana!.legs.every((l) => l.pricing_mode === "fixed")).toBe(true);
+    // The locked balance is exposed as an unlock opportunity, never reachable.
     expect(ana!.unlock_opportunities).toHaveLength(1);
     expect(ana!.unlock_opportunities[0]!.delta_usd).toBe(800);
     expect(ana!.months_to_goal).toBeNull(); // empty spend
     expect(ana!.rationale).toContain("$800");
   });
 
-  it("opens transfer reachability once a Sapphire Preferred is held", () => {
+  it("opens transfer reachability once a Sapphire Preferred is held (one-way)", () => {
     // A one-way Hawaii leg: UR unlocks via Sapphire, UR->United reaches it.
     const hawaii = generatePlan(
       input({
@@ -86,23 +89,27 @@ describe("generatePlan — Freedom unlock end to end", () => {
           walletCard(cardByName("Freedom Unlimited"), 80_000),
           walletCard(cardByName("Sapphire Preferred"), 0),
         ],
-        goal: { ...japanGoal, cabin: "economy", num_travelers: 1 },
-        legs: [
-          {
-            leg_index: 1,
-            origin_airport: "LAX",
-            destination_airport: "HNL",
-            destination_region: "Hawaii",
-            cabin: "economy",
-          },
-        ],
+        goal: {
+          num_travelers: 1,
+          flexibility: "anytime",
+          legs: [
+            {
+              seq: 1,
+              origin_airport: "LAX",
+              destination_airport: "HNL",
+              destination_region: "Hawaii",
+              cabin: "economy",
+              travel_month: null,
+            },
+          ],
+        },
       })
     ).strategies.find((s) => s.legs[0]!.route_name.includes("Hawaii"));
 
     expect(hawaii).toBeDefined();
-    expect(hawaii!.booking).toBe("one_way_each");
-    expect(hawaii!.points_needed).toBe(22_500); // single one-way leg
-    expect(hawaii!.gap).toBe(0);
+    expect(hawaii!.legs).toHaveLength(1); // one-way goal, single leg
+    expect(hawaii!.points_needed_total).toBe(22_500);
+    expect(hawaii!.gap_total).toBe(0);
     expect(hawaii!.tier).toBe("bookable_now");
     expect(hawaii!.unlock_opportunities).toHaveLength(0);
   });
@@ -121,6 +128,8 @@ describe("generatePlan — four tiers land and sort in order (single-leg)", () =
       requires_unlock: false,
       is_active: true,
       notes: null,
+      brand_color: null,
+      logo_url: null,
     },
   ];
   const heldCard: CardCatalog = {
@@ -169,6 +178,7 @@ describe("generatePlan — four tiers land and sort in order (single-leg)", () =
     is_active: true,
     last_verified_at: null,
     booking_unit: "one_way",
+    pricing_mode: "fixed",
   });
 
   const result = generatePlan(
@@ -210,23 +220,19 @@ describe("generatePlan — four tiers land and sort in order (single-leg)", () =
         ],
       },
       goal: {
-        origin_airport: "AAA",
-        destination_airport: null,
-        destination_region: "Testland",
-        cabin: "economy",
-        travel_month: null,
         num_travelers: 1,
         flexibility: "anytime",
+        legs: [
+          {
+            seq: 1,
+            origin_airport: "AAA",
+            destination_airport: null,
+            destination_region: "Testland",
+            cabin: "economy",
+            travel_month: null,
+          },
+        ],
       },
-      legs: [
-        {
-          leg_index: 1,
-          origin_airport: "AAA",
-          destination_airport: null,
-          destination_region: "Testland",
-          cabin: "economy",
-        },
-      ],
       monthlySpend: { dining: 2_000 },
     })
   );
@@ -266,10 +272,15 @@ describe("generatePlan — four tiers land and sort in order (single-leg)", () =
     );
   });
 
-  it("keeps timelines within 24 entries and gaps non-negative", () => {
+  it("keeps timelines within 24 entries, gaps non-negative, pct in range", () => {
     for (const s of result.strategies) {
       expect(s.timeline.length).toBeLessThanOrEqual(24);
-      expect(s.gap).toBeGreaterThanOrEqual(0);
+      expect(s.gap_total).toBeGreaterThanOrEqual(0);
+      for (const t of s.timeline) {
+        expect(t.projected_pct).toBeGreaterThanOrEqual(0);
+        expect(t.projected_pct).toBeLessThanOrEqual(100);
+        expect(t.projected_balances.map((b) => b.seq)).toEqual([1]);
+      }
     }
   });
 });
@@ -277,11 +288,12 @@ describe("generatePlan — four tiers land and sort in order (single-leg)", () =
 describe("generatePlan — determinism and schema", () => {
   const europeLeg: EngineLeg[] = [
     {
-      leg_index: 1,
+      seq: 1,
       origin_airport: "JFK",
       destination_airport: null,
       destination_region: "Europe",
       cabin: "economy",
+      travel_month: null,
     },
   ];
   const deterministicInput = input({
@@ -290,8 +302,7 @@ describe("generatePlan — determinism and schema", () => {
       walletCard(cardByName("Sapphire Preferred"), 20_000),
       walletCard(cardByName("Gold Card"), 40_000),
     ],
-    goal: { ...japanGoal, cabin: "economy" },
-    legs: europeLeg,
+    goal: { num_travelers: 1, flexibility: "anytime", legs: europeLeg },
     monthlySpend: { dining: 800, groceries: 600 },
   });
 
@@ -307,8 +318,7 @@ describe("generatePlan — determinism and schema", () => {
       s.legs[0]!.route_name.includes("Flying Blue")
     );
     expect(fb).toBeDefined();
-    const bonusStep = fb!.legs
-      .flatMap((l) => l.allocations)
+    const bonusStep = fb!.allocations
       .flatMap((a) => a.path)
       .find((p) => p.bonus_pct === 25);
     expect(bonusStep).toBeDefined();
@@ -332,7 +342,175 @@ describe("generatePlan — determinism and schema", () => {
       input({ wallet: [walletCard(cardByName("Gold Card"), 10_000)] })
     );
     for (const s of plan.strategies) {
-      if (s.gap > 0) expect(s.months_to_goal).toBeNull();
+      if (s.gap_total > 0) expect(s.months_to_goal).toBeNull();
     }
+  });
+});
+
+describe("generatePlan — cabin alternative (Task 4)", () => {
+  const P = "eeeeeeee-0000-4000-8000-000000000001";
+  const bank = "eeeeeeee-0000-4000-8000-000000000002";
+  const cardId = "eeeeeeee-0000-4000-8000-000000000003";
+  const currencies: Currency[] = [
+    {
+      id: P,
+      name: "SkyPoints",
+      kind: "airline",
+      alliance: null,
+      cashback_cpp: 0,
+      transfer_cpp: 1.5,
+      requires_unlock: false,
+      is_active: true,
+      notes: null,
+      brand_color: null,
+      logo_url: null,
+    },
+    {
+      id: bank,
+      name: "BankPoints",
+      kind: "bank",
+      alliance: null,
+      cashback_cpp: 1,
+      transfer_cpp: 1,
+      requires_unlock: false,
+      is_active: true,
+      notes: null,
+      brand_color: null,
+      logo_url: null,
+    },
+  ];
+  const card: CardCatalog = {
+    id: cardId,
+    name: "Bank Card",
+    issuer: "TestBank",
+    currency_id: bank,
+    annual_fee: 0,
+    unlocks_transfers: false,
+    affiliate_url: null,
+    application_rules: null,
+    is_active: true,
+    discontinued_at: null,
+    notes: null,
+    brand_color: null,
+    logo_url: null,
+  };
+  const edge = {
+    id: "eeeeeeee-0000-4000-8000-000000000004",
+    from_currency_id: bank,
+    to_currency_id: P,
+    ratio_num: 1,
+    ratio_den: 1,
+    transfer_hours_est: 0,
+    min_transfer: 1000,
+    increment: 1000,
+    is_active: true,
+    notes: null,
+  };
+  const mkRoute = (id: string, cabin: string, points: number): AwardRoute => ({
+    id,
+    name: `LAX-NRT ${cabin}`,
+    program_currency_id: P,
+    origin_region: "US",
+    origin_airports: ["LAX"],
+    destination_region: "Japan",
+    destination_airports: ["NRT"],
+    cabin,
+    points_oneway: points,
+    taxes_fees_usd_est: 20,
+    booking_url: null,
+    notes: null,
+    is_active: true,
+    last_verified_at: null,
+    booking_unit: "one_way",
+    pricing_mode: "fixed",
+  });
+
+  const ref = (routes: AwardRoute[]) => ({
+    currencies,
+    cards: [card],
+    earningRates: [],
+    welcomeOffers: [],
+    transferPartners: [edge],
+    transferBonuses: [],
+    awardRoutes: routes,
+  });
+
+  const wallet = [
+    {
+      id: "eeeeeeee-0000-4000-8000-00000000000a",
+      card_id: cardId,
+      points_balance: 50_000, // covers premium economy (40k), not business (200k)
+      opened_at: null,
+      card,
+    },
+  ];
+
+  const businessLeg: EngineLeg = {
+    seq: 1,
+    origin_airport: "LAX",
+    destination_airport: "NRT",
+    destination_region: "Japan",
+    cabin: "business",
+    travel_month: null,
+  };
+
+  it("surfaces a cheaper, bookable lower cabin (drop one cabin, need nothing new)", () => {
+    const plan = generatePlan({
+      wallet,
+      referenceData: ref([
+        mkRoute("eeeeeeee-0000-4000-8000-000000000100", "business", 200_000),
+        mkRoute(
+          "eeeeeeee-0000-4000-8000-000000000101",
+          "premium_economy",
+          40_000
+        ),
+      ]),
+      goal: { num_travelers: 1, flexibility: "anytime", legs: [businessLeg] },
+      availability: [],
+      monthlySpend: {},
+      now: NOW,
+    });
+
+    // Main business plan needs a new card (or is a stretch); the alternative
+    // one cabin down is bookable now with nothing new.
+    expect(plan.strategies[0]!.tier === "bookable_now").toBe(false);
+    const alt = plan.cabin_alternative;
+    expect(alt).not.toBeNull();
+    expect(alt!.cabin).toBe("premium_economy");
+    expect(alt!.points_needed_total).toBe(40_000);
+    expect(alt!.tier).toBe("bookable_now");
+    expect(alt!.requires_card).toBe(false);
+  });
+
+  it("is null at economy (no lower cabin exists)", () => {
+    const plan = generatePlan({
+      wallet,
+      referenceData: ref([
+        mkRoute("eeeeeeee-0000-4000-8000-000000000102", "economy", 20_000),
+      ]),
+      goal: {
+        num_travelers: 1,
+        flexibility: "anytime",
+        legs: [{ ...businessLeg, cabin: "economy" }],
+      },
+      availability: [],
+      monthlySpend: {},
+      now: NOW,
+    });
+    expect(plan.cabin_alternative).toBeNull();
+  });
+
+  it("is null when no route exists at the lower cabin", () => {
+    const plan = generatePlan({
+      wallet,
+      referenceData: ref([
+        mkRoute("eeeeeeee-0000-4000-8000-000000000103", "business", 200_000),
+      ]),
+      goal: { num_travelers: 1, flexibility: "anytime", legs: [businessLeg] },
+      availability: [],
+      monthlySpend: {},
+      now: NOW,
+    });
+    expect(plan.cabin_alternative).toBeNull();
   });
 });

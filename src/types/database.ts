@@ -91,6 +91,7 @@ export type Database = {
           origin_airports: string[] | null
           origin_region: string
           points_oneway: number
+          pricing_mode: string
           program_currency_id: string
           taxes_fees_usd_est: number
         }
@@ -108,6 +109,7 @@ export type Database = {
           origin_airports?: string[] | null
           origin_region: string
           points_oneway: number
+          pricing_mode?: string
           program_currency_id: string
           taxes_fees_usd_est?: number
         }
@@ -125,6 +127,7 @@ export type Database = {
           origin_airports?: string[] | null
           origin_region?: string
           points_oneway?: number
+          pricing_mode?: string
           program_currency_id?: string
           taxes_fees_usd_est?: number
         }
@@ -195,10 +198,12 @@ export type Database = {
       currencies: {
         Row: {
           alliance: string | null
+          brand_color: string | null
           cashback_cpp: number
           id: string
           is_active: boolean
           kind: string
+          logo_url: string | null
           name: string
           notes: string | null
           requires_unlock: boolean
@@ -206,10 +211,12 @@ export type Database = {
         }
         Insert: {
           alliance?: string | null
+          brand_color?: string | null
           cashback_cpp?: number
           id?: string
           is_active?: boolean
           kind: string
+          logo_url?: string | null
           name: string
           notes?: string | null
           requires_unlock?: boolean
@@ -217,10 +224,12 @@ export type Database = {
         }
         Update: {
           alliance?: string | null
+          brand_color?: string | null
           cashback_cpp?: number
           id?: string
           is_active?: boolean
           kind?: string
+          logo_url?: string | null
           name?: string
           notes?: string | null
           requires_unlock?: boolean
@@ -269,8 +278,9 @@ export type Database = {
           destination_region: string | null
           goal_id: string
           id: string
-          leg_index: number
           origin_airport: string
+          seq: number
+          travel_month: string | null
         }
         Insert: {
           cabin: string
@@ -278,8 +288,9 @@ export type Database = {
           destination_region?: string | null
           goal_id: string
           id?: string
-          leg_index: number
           origin_airport: string
+          seq: number
+          travel_month?: string | null
         }
         Update: {
           cabin?: string
@@ -287,8 +298,9 @@ export type Database = {
           destination_region?: string | null
           goal_id?: string
           id?: string
-          leg_index?: number
           origin_airport?: string
+          seq?: number
+          travel_month?: string | null
         }
         Relationships: [
           {

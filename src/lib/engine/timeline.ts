@@ -1,12 +1,13 @@
 // Stage 7 (PLAN.md §4.7): the precomputed time-to-earn visual. Months are
 // derived from `now` only — never the wall clock. Emission caps at 24 months.
 //
-// One shared projection for the whole trip: the balance climbs toward the
-// trip's total need, and the trip BOOKS (per-leg transfer + book events) only
-// once every leg is covered. A trip that books immediately emits a single
-// month.
-import type { CardRecommendation, LegPlan, TimelineEntry } from "./schema";
-import type { GapClosure } from "./gap";
+// A single trip-wide balance is meaningless once the legs target different
+// programs, so each leg is projected on its OWN program: it starts at that
+// leg's reachable balance and climbs on that leg's velocity (and welcome bonus,
+// if that leg's gap needs a card). The trip BOOKS only in the month EVERY leg
+// is covered; projected_pct is the trip's overall progress toward
+// points_needed_total, so one leg's surplus can't mask another's shortfall.
+import type { Allocation, LegPlan, TimelineEntry } from "./schema";
 
 export function monthKey(now: Date, offsetMonths: number): string {
   const year = now.getUTCFullYear();
@@ -20,114 +21,174 @@ function fmt(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-function transferDescriptions(legs: LegPlan[]): string[] {
-  const multi = legs.length > 1;
+/** Per-leg projection inputs, resolved from each leg's gap closure. */
+export type LegProjection = {
+  seq: 1 | 2;
+  reachable: number;
+  needed: number;
+  /** points/month delivered into this leg's program */
+  velocity: number;
+  /** 1-based month the welcome bonus posts for this leg, or null */
+  bonus_month: number | null;
+  /** points the bonus delivers into this leg's program */
+  bonus_delivered: number;
+  /** welcome_bonus_posts event text for this leg, or null when no card */
+  bonus_event: string | null;
+};
+
+function transferDescriptions(
+  allocations: Allocation[],
+  multiLeg: boolean
+): string[] {
   const out: string[] = [];
-  for (const leg of legs) {
-    const prefix =
-      multi && !leg.covers_round_trip ? `Leg ${leg.leg_index}: ` : "";
-    for (const a of leg.allocations) {
-      if (a.path.length === 0) continue;
-      const hops = a.path
-        .map((s) => {
-          const bonus = s.bonus_pct !== null ? ` (+${s.bonus_pct}% bonus)` : "";
-          return `${fmt(s.points_sent)} ${s.from_currency_name} → ${fmt(
-            s.points_delivered
-          )} ${s.to_currency_name}${bonus}`;
-        })
-        .join(", then ");
-      out.push(`${prefix}Transfer ${hops}`);
-    }
+  for (const a of allocations) {
+    if (a.path.length === 0) continue;
+    const prefix = multiLeg ? `Leg ${a.leg_seq}: ` : "";
+    const hops = a.path
+      .map((s) => {
+        const bonus = s.bonus_pct !== null ? ` (+${s.bonus_pct}% bonus)` : "";
+        return `${fmt(s.points_sent)} ${s.from_currency_name} → ${fmt(
+          s.points_delivered
+        )} ${s.to_currency_name}${bonus}`;
+      })
+      .join(", then ");
+    out.push(`${prefix}Transfer ${hops}`);
   }
   return out;
 }
 
 function bookDescriptions(legs: LegPlan[]): string[] {
-  return legs.map((leg) => {
-    const what = leg.covers_round_trip
-      ? `${leg.route_name} (round trip, ${fmt(leg.points_needed)} points)`
-      : `${leg.route_name} (${fmt(leg.points_needed)} points)`;
-    return `Book ${what}`;
+  const isRoundTrip =
+    legs.length === 2 && legs[0]!.route_id === legs[1]!.route_id;
+  if (isRoundTrip) {
+    const total = legs.reduce((s, l) => s + l.points_needed, 0);
+    return [`Book ${legs[0]!.route_name} (round trip, ${fmt(total)} points)`];
+  }
+  return legs.map((l) => {
+    const label = legs.length > 1 ? `Leg ${l.seq}: ` : "";
+    return `${label}Book ${l.route_name} (${fmt(l.points_needed)} points)`;
   });
+}
+
+/** Capped-at-need progress toward the trip's total requirement, 0-100. */
+function pct(
+  balances: { seq: 1 | 2; balance: number }[],
+  legs: LegProjection[]
+) {
+  const total = legs.reduce((s, l) => s + l.needed, 0);
+  if (total <= 0) return 100;
+  const covered = balances.reduce((s, b) => {
+    const need = legs.find((l) => l.seq === b.seq)?.needed ?? 0;
+    return s + Math.min(b.balance, need);
+  }, 0);
+  return Math.max(0, Math.min(100, Math.round((covered / total) * 100)));
 }
 
 export function buildTimeline(params: {
   now: Date;
-  /** trip totals */
-  needed: number;
-  reachable: number;
-  gap: number;
-  legs: LegPlan[];
-  closure: GapClosure;
-  recommended: CardRecommendation | null;
+  legs: LegProjection[];
+  legPlans: LegPlan[];
+  allocations: Allocation[];
+  gapTotal: number;
 }): TimelineEntry[] {
-  const { now, needed, reachable, gap, legs, closure, recommended } = params;
+  const { now, legs, legPlans, allocations, gapTotal } = params;
+  const multiLeg = legPlans.length > 1;
 
-  const transfers = transferDescriptions(legs).map((description) => ({
-    type: "transfer" as const,
-    description,
-  }));
-  const books = bookDescriptions(legs).map((description) => ({
+  const transfers = transferDescriptions(allocations, multiLeg).map(
+    (description) => ({ type: "transfer" as const, description })
+  );
+  const books = bookDescriptions(legPlans).map((description) => ({
     type: "book" as const,
     description,
   }));
 
-  if (gap <= 0) {
+  const balanceAt = (leg: LegProjection, m: number): number => {
+    if (leg.needed - leg.reachable <= 0) return leg.needed; // covered now
+    const bonus =
+      leg.bonus_month !== null && m >= leg.bonus_month
+        ? leg.bonus_delivered
+        : 0;
+    return Math.floor(leg.reachable + leg.velocity * m + bonus);
+  };
+  const legCovered = (leg: LegProjection, m: number): boolean =>
+    Math.min(balanceAt(leg, m), leg.needed) >= leg.needed;
+
+  const balancesAt = (m: number) =>
+    legs.map((l) => ({ seq: l.seq, projected_balance: balanceAt(l, m) }));
+
+  // Bookable now: one month, everything happens today.
+  if (gapTotal <= 0) {
     return [
       {
         month: monthKey(now, 0),
-        projected_balance: needed,
+        projected_balances: balancesAt(0),
+        projected_pct: 100,
         events: [...transfers, ...books],
       },
     ];
   }
 
-  const velocity =
-    (recommended !== null
-      ? closure.earn_velocity.with_recommended
-      : closure.earn_velocity.held) ?? 0;
-  const bonusMonth = recommended !== null ? closure.bonus_month : null;
-
-  // Nothing will ever change: emit the starting month only.
-  if (velocity <= 0 && bonusMonth === null) {
+  // Will any gapped leg ever move? If none does, nothing changes — one month.
+  const canProgress = legs.some(
+    (l) =>
+      l.needed - l.reachable > 0 && (l.velocity > 0 || l.bonus_month !== null)
+  );
+  if (!canProgress) {
     return [
-      { month: monthKey(now, 0), projected_balance: reachable, events: [] },
+      {
+        month: monthKey(now, 0),
+        projected_balances: balancesAt(0),
+        projected_pct: pct(
+          balancesAt(0).map((b) => ({
+            seq: b.seq,
+            balance: b.projected_balance,
+          })),
+          legs
+        ),
+        events: [],
+      },
     ];
   }
 
-  const entries: TimelineEntry[] = [
-    { month: monthKey(now, 0), projected_balance: reachable, events: [] },
-  ];
-
-  // 24 entries total including month 0
-  for (let m = 1; m <= 23; m += 1) {
-    let balance = reachable + velocity * m;
+  const entries: TimelineEntry[] = [];
+  for (let m = 0; m <= 23; m += 1) {
+    const raw = balancesAt(m);
     const events: TimelineEntry["events"] = [];
 
-    if (recommended !== null && bonusMonth !== null && m >= bonusMonth) {
-      balance += recommended.delivered_points;
-      if (m === bonusMonth) {
-        events.push({
-          type: "welcome_bonus_posts",
-          description: `${recommended.issuer} ${recommended.card_name} welcome bonus posts (~${fmt(
-            recommended.delivered_points
-          )} points after $${fmt(recommended.min_spend_usd)} spend)`,
-        });
+    // Welcome bonuses post in their month (skip month 0 — a bonus needs spend).
+    if (m > 0) {
+      for (const l of legs) {
+        if (
+          l.bonus_month !== null &&
+          m === l.bonus_month &&
+          l.bonus_event !== null
+        ) {
+          events.push({
+            type: "welcome_bonus_posts",
+            description: l.bonus_event,
+          });
+        }
       }
     }
 
-    const projected = Math.floor(balance);
-    if (projected >= needed) {
+    const allCovered = legs.every((l) => legCovered(l, m));
+    if (allCovered && m > 0) {
       entries.push({
         month: monthKey(now, m),
-        projected_balance: projected,
+        projected_balances: raw,
+        projected_pct: 100,
         events: [...events, ...transfers, ...books],
       });
       break;
     }
+
     entries.push({
       month: monthKey(now, m),
-      projected_balance: projected,
+      projected_balances: raw,
+      projected_pct: pct(
+        raw.map((b) => ({ seq: b.seq, balance: b.projected_balance })),
+        legs
+      ),
       events,
     });
   }

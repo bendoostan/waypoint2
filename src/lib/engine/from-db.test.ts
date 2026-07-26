@@ -61,35 +61,38 @@ describe("buildEngineInput", () => {
       availability: [],
       now: new Date("2026-08-01T00:00:00Z"),
     });
-    expect(input.legs).toHaveLength(1);
-    expect(input.legs[0]).toEqual({
-      leg_index: 1,
+    expect(input.goal.legs).toHaveLength(1);
+    expect(input.goal.legs[0]).toEqual({
+      seq: 1,
       origin_airport: "SFO",
       destination_airport: "HND",
       destination_region: "Japan",
       cabin: "business",
+      travel_month: "2027-03",
     });
   });
 
-  it("builds legs from goal_legs, ordered by leg_index", () => {
+  it("builds legs from goal_legs, ordered by seq", () => {
     const goalLegs: GoalLegRow[] = [
       {
         id: "cccc0000-0000-4000-8000-000000000002",
         goal_id: goal.id,
-        leg_index: 2,
+        seq: 2,
         origin_airport: "HND",
         destination_airport: "SFO",
         destination_region: null,
         cabin: "business",
+        travel_month: "2027-03",
       },
       {
         id: "cccc0000-0000-4000-8000-000000000001",
         goal_id: goal.id,
-        leg_index: 1,
+        seq: 1,
         origin_airport: "SFO",
         destination_airport: "HND",
         destination_region: null,
         cabin: "business",
+        travel_month: "2027-03",
       },
     ];
     const input = buildEngineInput({
@@ -101,9 +104,9 @@ describe("buildEngineInput", () => {
       availability: [],
       now: new Date("2026-08-01T00:00:00Z"),
     });
-    expect(input.legs.map((l) => l.leg_index)).toEqual([1, 2]);
-    expect(input.legs[0]!.origin_airport).toBe("SFO");
-    expect(input.legs[1]!.origin_airport).toBe("HND");
-    expect(input.legs[1]!.destination_airport).toBe("SFO");
+    expect(input.goal.legs.map((l) => l.seq)).toEqual([1, 2]);
+    expect(input.goal.legs[0]!.origin_airport).toBe("SFO");
+    expect(input.goal.legs[1]!.origin_airport).toBe("HND");
+    expect(input.goal.legs[1]!.destination_airport).toBe("SFO");
   });
 });

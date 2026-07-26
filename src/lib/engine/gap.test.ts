@@ -28,6 +28,8 @@ function mkCurrency(over: Partial<Currency> = {}): Currency {
     requires_unlock: false,
     is_active: true,
     notes: null,
+    brand_color: null,
+    logo_url: null,
     ...over,
   };
 }

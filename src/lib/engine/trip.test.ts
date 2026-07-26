@@ -9,6 +9,7 @@ import type {
   CardCatalog,
   Currency,
   EffectiveCurrency,
+  EngineGoal,
   EngineInput,
   EngineLeg,
   TransferPartner,
@@ -30,6 +31,8 @@ function mkCurrency(id: string, over: Partial<Currency> = {}): Currency {
     requires_unlock: false,
     is_active: true,
     notes: null,
+    brand_color: null,
+    logo_url: null,
     ...over,
   };
 }
@@ -59,6 +62,19 @@ function firstEdgeStep(quote: PathQuote): number {
   if (quote.edges.length === 0) return 1;
   const inc = quote.edges[0]!.edge.increment;
   return inc && inc > 0 ? inc : 1;
+}
+
+/** Total points drawn from one currency across both legs of a split. */
+function drawnFrom(
+  split: {
+    leg1: { allocations: { currency_id: string; points_used: number }[] };
+    leg2: { allocations: { currency_id: string; points_used: number }[] };
+  },
+  currencyId: string
+): number {
+  return [...split.leg1.allocations, ...split.leg2.allocations]
+    .filter((a) => a.currency_id === currencyId)
+    .reduce((s, a) => s + a.points_used, 0);
 }
 
 /**
@@ -289,6 +305,11 @@ describe("solveSplit is exact (certified against brute force)", () => {
         sc.currencies
       );
 
+      // Conservation holds on every scenario: no source is ever over-drawn.
+      for (const e of sc.entries) {
+        expect(drawnFrom(split, e.currency_id)).toBeLessThanOrEqual(e.balance);
+      }
+
       if (brute === null) {
         expect(split.feasible).toBe(false);
         return;
@@ -352,8 +373,33 @@ describe("solveSplit is exact (certified against brute force)", () => {
   });
 });
 
+describe("solveSplit conserves the wallet (never double-spends a shared source)", () => {
+  it("caps a shared source at its balance when both legs want all of it", () => {
+    // S can reach BOTH programs 1:1, but 30k can't cover 20k + 20k = 40k. A
+    // naive per-leg fill would draw 20k for each (40k > 30k). Conservation must
+    // hold: the total drawn from S never exceeds 30k.
+    const currencies = [
+      mkCurrency(D1, { kind: "airline" }),
+      mkCurrency(D2, { kind: "airline" }),
+      mkCurrency(S, { transfer_cpp: 1.0 }),
+    ];
+    const edges = [mkEdge("c1", S, D1), mkEdge("c2", S, D2)];
+    const entries: EffectiveCurrency[] = [
+      { currency_id: S, balance: 30000, unlocked: true, cpp: 1.0 },
+    ];
+    const reach = expandReachability(entries, edges, [], currencies, NOW);
+    const split = solveSplit(20000, D1, 20000, D2, reach, entries, currencies);
+
+    expect(split.feasible).toBe(false); // 40k wanted, 30k available
+    expect(drawnFrom(split, S)).toBeLessThanOrEqual(30000);
+    // Leg 1 (outbound) has priority and is covered; leg 2 gets the remainder.
+    expect(split.leg1.gap).toBe(0);
+    expect(split.leg2.gap).toBeGreaterThan(0);
+  });
+});
+
 // ---------------------------------------------------------------------------
-// generatePlan-level trip option selection.
+// generatePlan-level trip option selection (new trip-level contract).
 // ---------------------------------------------------------------------------
 function mkCard(id: string, currencyId: string): CardCatalog {
   return {
@@ -392,11 +438,35 @@ function mkRoute(
     is_active: true,
     last_verified_at: null,
     booking_unit: "one_way",
+    pricing_mode: "fixed",
     ...over,
   };
 }
 
-describe("generatePlan — round_trip-unit vs two one-ways", () => {
+function leg(over: Partial<EngineLeg>): EngineLeg {
+  return {
+    seq: 1,
+    origin_airport: "SFO",
+    destination_airport: "HND",
+    destination_region: "Dest",
+    cabin: "business",
+    travel_month: null,
+    ...over,
+  };
+}
+
+const goal = (legs: EngineLeg[]): EngineGoal => ({
+  num_travelers: 1,
+  flexibility: "anytime",
+  legs,
+});
+
+/** A round trip is two legs on ONE route (same program, one booking). */
+function isRoundTrip(s: { legs: { route_id: string }[] }): boolean {
+  return s.legs.length === 2 && s.legs[0]!.route_id === s.legs[1]!.route_id;
+}
+
+describe("generatePlan — round-trip unit vs two one-ways (mixed program)", () => {
   const D = "bbbbbbbb-0000-4000-8000-0000000000d0";
   const PD1 = "bbbbbbbb-0000-4000-8000-0000000000d1";
   const PD2 = "bbbbbbbb-0000-4000-8000-0000000000d2";
@@ -457,16 +527,6 @@ describe("generatePlan — round_trip-unit vs two one-ways", () => {
     awardRoutes: routes,
   };
 
-  const goal = {
-    origin_airport: "SFO",
-    destination_airport: "HND",
-    destination_region: "Dest",
-    cabin: "business",
-    travel_month: null,
-    num_travelers: 1,
-    flexibility: "anytime",
-  };
-
   const baseInput = (legs: EngineLeg[]): EngineInput => ({
     wallet: [
       {
@@ -478,86 +538,139 @@ describe("generatePlan — round_trip-unit vs two one-ways", () => {
       },
     ],
     referenceData: reference,
-    goal,
-    legs,
+    goal: goal(legs),
     availability: [],
     monthlySpend: {},
     now: NOW,
   });
 
-  it("chooses the round_trip unit when it is cheaper than two one-ways", () => {
-    const legs: EngineLeg[] = [
-      {
-        leg_index: 1,
-        origin_airport: "SFO",
-        destination_airport: "HND",
-        destination_region: "Dest",
-        cabin: "business",
-      },
-      {
-        leg_index: 2,
-        origin_airport: "HND",
-        destination_airport: "SFO",
-        destination_region: "Dest",
-        cabin: "business",
-      },
-    ];
-    const plan = generatePlan(baseInput(legs));
+  it("chooses the round-trip unit when it is cheaper than two one-ways", () => {
+    const plan = generatePlan(
+      baseInput([
+        leg({ seq: 1, origin_airport: "SFO", destination_airport: "HND" }),
+        leg({ seq: 2, origin_airport: "HND", destination_airport: "SFO" }),
+      ])
+    );
     // both are bookable_now; the RT unit (40k via 1:1) beats the split
     // (40k+40k source via 2:1), so it sorts first.
-    expect(plan.strategies[0]!.booking).toBe("round_trip_unit");
-    expect(plan.strategies[0]!.gap).toBe(0);
-    expect(plan.strategies[0]!.points_needed).toBe(40000); // 20k × 2 directions
-    // the split option is still offered
-    expect(plan.strategies.some((s) => s.booking === "one_way_each")).toBe(
-      true
-    );
-    const split = plan.strategies.find((s) => s.booking === "one_way_each")!;
-    expect(plan.strategies[0]!.total_opportunity_cost_usd).toBeLessThan(
+    const top = plan.strategies[0]!;
+    expect(isRoundTrip(top)).toBe(true);
+    expect(top.gap_total).toBe(0);
+    expect(top.points_needed_total).toBe(40000); // 20k × 2 directions
+    expect(top.legs.map((l) => l.seq)).toEqual([1, 2]);
+    // the split option is still offered, and costs more
+    const split = plan.strategies.find((s) => !isRoundTrip(s))!;
+    expect(split.legs).toHaveLength(2);
+    expect(top.total_opportunity_cost_usd).toBeLessThan(
       split.total_opportunity_cost_usd
     );
   });
 
-  it("rejects the round_trip unit when the legs are not exact reverses", () => {
-    const legs: EngineLeg[] = [
-      {
-        leg_index: 1,
-        origin_airport: "SFO",
-        destination_airport: "HND",
-        destination_region: "Dest",
-        cabin: "business",
-      },
-      {
-        leg_index: 2,
-        origin_airport: "HND",
-        destination_airport: "LAX", // open-jaw: not the reverse of leg 1
-        destination_region: "Dest",
-        cabin: "business",
-      },
-    ];
-    const plan = generatePlan(baseInput(legs));
-    expect(plan.strategies.every((s) => s.booking === "one_way_each")).toBe(
-      true
+  it("mixed-program split: out on one program, home on another", () => {
+    const plan = generatePlan(
+      baseInput([
+        leg({ seq: 1, origin_airport: "SFO", destination_airport: "HND" }),
+        leg({ seq: 2, origin_airport: "HND", destination_airport: "SFO" }),
+      ])
     );
-    // the open-jaw is still solvable as two one-ways
+    const split = plan.strategies.find(
+      (s) =>
+        !isRoundTrip(s) &&
+        s.legs[0]!.program_currency_id !== s.legs[1]!.program_currency_id
+    );
+    expect(split).toBeDefined();
+    expect(split!.legs[0]!.program_currency_name).toBe("C-00d1");
+    expect(split!.legs[1]!.program_currency_name).toBe("C-00d2");
+    // a currency feeding both legs appears once per leg_seq
+    expect(new Set(split!.allocations.map((a) => a.leg_seq))).toEqual(
+      new Set([1, 2])
+    );
+  });
+
+  it("open-jaw: no round-trip unit; solved as two one-ways", () => {
+    const plan = generatePlan(
+      baseInput([
+        leg({ seq: 1, origin_airport: "SFO", destination_airport: "HND" }),
+        // home from a DIFFERENT city — not the reverse of leg 1
+        leg({ seq: 2, origin_airport: "HND", destination_airport: "LAX" }),
+      ])
+    );
     expect(plan.strategies.length).toBeGreaterThan(0);
+    expect(plan.strategies.every((s) => !isRoundTrip(s))).toBe(true);
     expect(plan.strategies[0]!.legs).toHaveLength(2);
+  });
+});
+
+describe("generatePlan — round-trip-only route is rejected for a one-way goal", () => {
+  const D = "dddddddd-0000-4000-8000-0000000000d0";
+  const bank = "dddddddd-0000-4000-8000-0000000000b0";
+  const cardId = "dddddddd-0000-4000-8000-0000000000c0";
+  const currencies = [
+    mkCurrency(D, { kind: "airline", transfer_cpp: 1.5 }),
+    mkCurrency(bank, { kind: "bank", transfer_cpp: 1.0 }),
+  ];
+  const cards = [mkCard(cardId, bank)];
+  const edges = [mkEdge("oe1", bank, D)];
+  const routes = [
+    mkRoute({
+      id: "dddddddd-0000-4000-8000-000000000100",
+      name: "RT only on D",
+      program_currency_id: D,
+      origin_airports: ["SFO"],
+      destination_airports: ["HND"],
+      booking_unit: "round_trip",
+    }),
+  ];
+
+  it("a one-way goal finds no strategy from a round_trip-only route", () => {
+    const plan = generatePlan({
+      wallet: [
+        {
+          id: "dddddddd-0000-4000-8000-0000000000w0",
+          card_id: cardId,
+          points_balance: 200000,
+          opened_at: null,
+          card: cards[0]!,
+        },
+      ],
+      referenceData: {
+        currencies,
+        cards,
+        earningRates: [],
+        welcomeOffers: [],
+        transferPartners: edges,
+        transferBonuses: [],
+        awardRoutes: routes,
+      },
+      goal: goal([
+        leg({ seq: 1, origin_airport: "SFO", destination_airport: "HND" }),
+      ]),
+      availability: [],
+      monthlySpend: {},
+      now: NOW,
+    });
+    expect(plan.strategies).toHaveLength(0);
   });
 });
 
 describe("generatePlan — per-leg partial coverage", () => {
   const PD1 = "cccccccc-0000-4000-8000-0000000000d1";
   const PD2 = "cccccccc-0000-4000-8000-0000000000d2";
-  const bank = "cccccccc-0000-4000-8000-0000000000b0";
-  const cardId = "cccccccc-0000-4000-8000-0000000000c0";
+  const bank1 = "cccccccc-0000-4000-8000-0000000000b1";
+  const bank2 = "cccccccc-0000-4000-8000-0000000000b2";
+  const card1 = "cccccccc-0000-4000-8000-0000000000c1";
+  const card2 = "cccccccc-0000-4000-8000-0000000000c2";
 
+  // Two disjoint banks — one per leg — so this isolates the per-leg gap from
+  // any shared-wallet contention.
   const currencies: Currency[] = [
     mkCurrency(PD1, { kind: "airline", transfer_cpp: 1.5 }),
     mkCurrency(PD2, { kind: "airline", transfer_cpp: 1.5 }),
-    mkCurrency(bank, { kind: "bank", transfer_cpp: 1.0 }),
+    mkCurrency(bank1, { kind: "bank", transfer_cpp: 1.0 }),
+    mkCurrency(bank2, { kind: "bank", transfer_cpp: 1.0 }),
   ];
-  const cards = [mkCard(cardId, bank)];
-  const edges = [mkEdge("pe1", bank, PD1), mkEdge("pe2", bank, PD2)];
+  const cards = [mkCard(card1, bank1), mkCard(card2, bank2)];
+  const edges = [mkEdge("pe1", bank1, PD1), mkEdge("pe2", bank2, PD2)];
   const routes: AwardRoute[] = [
     mkRoute({
       id: "cccccccc-0000-4000-8000-000000000201",
@@ -581,11 +694,18 @@ describe("generatePlan — per-leg partial coverage", () => {
     const plan = generatePlan({
       wallet: [
         {
-          id: "cccccccc-0000-4000-8000-0000000000w0",
-          card_id: cardId,
-          points_balance: 20000, // covers leg 1 (20k) but not leg 2 (50k)
+          id: "cccccccc-0000-4000-8000-0000000000w1",
+          card_id: card1,
+          points_balance: 20000, // covers leg 1 (20k)
           opened_at: null,
           card: cards[0]!,
+        },
+        {
+          id: "cccccccc-0000-4000-8000-0000000000w2",
+          card_id: card2,
+          points_balance: 20000, // short for leg 2 (50k)
+          opened_at: null,
+          card: cards[1]!,
         },
       ],
       referenceData: {
@@ -597,31 +717,10 @@ describe("generatePlan — per-leg partial coverage", () => {
         transferBonuses: [],
         awardRoutes: routes,
       },
-      goal: {
-        origin_airport: "SFO",
-        destination_airport: "HND",
-        destination_region: "Dest",
-        cabin: "business",
-        travel_month: null,
-        num_travelers: 1,
-        flexibility: "anytime",
-      },
-      legs: [
-        {
-          leg_index: 1,
-          origin_airport: "SFO",
-          destination_airport: "HND",
-          destination_region: "Dest",
-          cabin: "business",
-        },
-        {
-          leg_index: 2,
-          origin_airport: "HND",
-          destination_airport: "SFO",
-          destination_region: "Dest",
-          cabin: "business",
-        },
-      ],
+      goal: goal([
+        leg({ seq: 1, origin_airport: "SFO", destination_airport: "HND" }),
+        leg({ seq: 2, origin_airport: "HND", destination_airport: "SFO" }),
+      ]),
       availability: [],
       monthlySpend: {},
       now: NOW,
@@ -629,13 +728,12 @@ describe("generatePlan — per-leg partial coverage", () => {
 
     expect(plan.strategies).toHaveLength(1);
     const trip = plan.strategies[0]!;
-    expect(trip.booking).toBe("one_way_each");
     expect(trip.legs).toHaveLength(2);
-    const leg1 = trip.legs.find((l) => l.leg_index === 1)!;
-    const leg2 = trip.legs.find((l) => l.leg_index === 2)!;
+    const leg1 = trip.legs.find((l) => l.seq === 1)!;
+    const leg2 = trip.legs.find((l) => l.seq === 2)!;
     expect(leg1.gap).toBe(0); // bookable
     expect(leg2.gap).toBe(30000); // 50k need − 20k reachable
-    expect(trip.gap).toBe(30000);
+    expect(trip.gap_total).toBe(30000);
     expect(trip.tier).not.toBe("bookable_now"); // worst leg drives the tier
     expect(trip.months_to_goal).toBeNull(); // no spend → undatable gap
   });

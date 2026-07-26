@@ -51,6 +51,34 @@ function capGrid(step: number, top: number): number[] {
   return grid.length > 0 ? grid : [0];
 }
 
+/**
+ * Conservation is an invariant, not an emergent property: the points drawn from
+ * any currency across BOTH legs must never exceed its balance. An over-drawn
+ * wallet is the most damaging bug this product could ship — every number on the
+ * page is supposed to be reproducible — so we assert it on every solution.
+ */
+function assertConserves(
+  solution: SplitSolution,
+  entries: EffectiveCurrency[]
+): SplitSolution {
+  const drawn = new Map<string, number>();
+  for (const leg of [solution.leg1, solution.leg2]) {
+    for (const a of leg.allocations) {
+      drawn.set(a.currency_id, (drawn.get(a.currency_id) ?? 0) + a.points_used);
+    }
+  }
+  for (const e of entries) {
+    const used = drawn.get(e.currency_id) ?? 0;
+    if (used > e.balance) {
+      throw new Error(
+        `conservation violated: drew ${used} from ${e.currency_id} ` +
+          `but balance is ${e.balance}`
+      );
+    }
+  }
+  return solution;
+}
+
 function sourcesReaching(
   destCurrencyId: string,
   reach: Reachability,
@@ -70,10 +98,10 @@ function sourcesReaching(
 
 /**
  * Solve a split trip exactly. Returns both legs' fills and whether the whole
- * trip is coverable from the shared wallet. When it is NOT coverable, each leg
- * is reported as the single-leg engine would (independent, full-balance) so the
- * per-leg reachable/gap is never crashed or silently zeroed — the trip is
- * flagged not-bookable by its gap regardless.
+ * trip is coverable from the shared wallet. When it is NOT coverable it falls
+ * back to a conservation-respecting report (leg 1 priority, leg 2 the
+ * remainder) so the per-leg reachable/gap is honest AND no shared currency is
+ * ever over-drawn; the trip is flagged not-bookable by its gap regardless.
  */
 export function solveSplit(
   n1: number,
@@ -86,9 +114,27 @@ export function solveSplit(
 ): SplitSolution {
   const balances = new Map(entries.map((e) => [e.currency_id, e]));
 
-  const independent = (): SplitSolution => {
+  // Conservation-respecting split when the grid search finds no full-coverage
+  // plan (an infeasible trip) OR when the legs share no source. Leg 1 (the
+  // outbound) has priority; leg 2 draws only what leg 1 leaves, so a currency
+  // both legs can reach is NEVER double-spent. When no source is shared this is
+  // exactly the independent optimum (leg 1's draw touches none of leg 2's
+  // sources); when the trip cannot be covered it is an honest per-leg report
+  // that still respects every balance.
+  const conserving = (): SplitSolution => {
     const leg1 = solveCandidate(n1, d1, reach, entries, currencies);
-    const leg2 = solveCandidate(n2, d2, reach, entries, currencies);
+    const used = new Map<string, number>();
+    for (const a of leg1.allocations) {
+      used.set(a.currency_id, (used.get(a.currency_id) ?? 0) + a.points_used);
+    }
+    const caps2 = new Map<string, number>();
+    for (const e of entries) {
+      caps2.set(
+        e.currency_id,
+        Math.max(0, e.balance - (used.get(e.currency_id) ?? 0))
+      );
+    }
+    const leg2 = solveCandidate(n2, d2, reach, entries, currencies, caps2);
     return { leg1, leg2, feasible: leg1.gap === 0 && leg2.gap === 0 };
   };
 
@@ -98,7 +144,7 @@ export function solveSplit(
 
   // No coupling: the two legs are independent, so their separate optima ARE
   // the joint optimum.
-  if (shared.length === 0) return independent();
+  if (shared.length === 0) return assertConserves(conserving(), entries);
 
   // Build the cap1 grid for each shared source.
   const grids: { sourceId: string; balance: number; grid: number[] }[] = [];
@@ -161,6 +207,7 @@ export function solveSplit(
   };
   recurse(0);
 
-  // Not jointly coverable: fall back to the honest per-leg report.
-  return best ?? independent();
+  // Not jointly coverable: fall back to the conservation-respecting per-leg
+  // report (leg 1 priority, leg 2 the remainder) — never an over-drawn wallet.
+  return assertConserves(best ?? conserving(), entries);
 }

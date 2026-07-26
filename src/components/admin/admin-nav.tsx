@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
+  { href: "/admin/graph", label: "Graph" },
   { href: "/admin/cards", label: "Cards" },
   { href: "/admin/currencies", label: "Currencies" },
   { href: "/admin/transfers", label: "Transfers" },

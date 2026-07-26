@@ -27,28 +27,28 @@ lead with the trip, and let the card fall out as the honest next step.
 Warm, deliberately **not** black-on-white. Navy ink on warm paper, one
 champagne accent, calm semantic colors that never turn alarmist.
 
-| Role                | Token                 | Hex       | Use                                              |
-| ------------------- | --------------------- | --------- | ------------------------------------------------ |
-| Navy ink            | `--wp-ink`            | `#20263B` | Headings, primary buttons, ink, dark panels      |
-| Ink (gradient)      | `--wp-ink-2`          | `#2B3450` | Card-mark gradient start                         |
-| Ink (deep)          | `--wp-ink-3`          | `#161B2C` | Gradient end, deepest shadow                     |
-| Body                | `--wp-body`           | `#4A5063` | Body copy on paper                               |
-| Muted               | `--wp-muted`          | `#6C7385` | Secondary text                                   |
-| Muted 2             | `--wp-muted-2`        | `#9AA0AE` | Tertiary text, placeholders, hex captions        |
-| Warm paper          | `--wp-paper`          | `#F7F4ED` | App background, primary-button text              |
-| Canvas              | `--wp-canvas`         | `#E7E4DD` | Deeper canvas behind panels                      |
-| Panel white         | `--wp-panel`          | `#FFFFFF` | Cards, panels                                    |
-| Track               | `--wp-track`          | `#EFEBE2` | Progress track, subtle fills, "stretch" badge bg |
-| Surface 2           | `--wp-surface-2`      | `#EBE6DC` | Active nav pill, "reachable" badge bg            |
-| Border              | `--wp-border`         | `#E6E0D4` | Hairline borders                                 |
-| Border 2            | `--wp-border-2`       | `#DED8CC` | Panel borders, input borders                     |
-| Divider             | `--wp-divider`        | `#D2CEC4` | Section rules                                    |
-| Dashed              | `--wp-border-dashed`  | `#C9C2B2` | "No card art" dashed placeholders                |
-| **Champagne**       | `--wp-accent`         | `#C6A35C` | THE accent — fills, dots, lines, focus ring      |
-| Champagne (text)    | `--wp-accent-text`    | `#8C6E2C` | Accent-colored **text** (contrast-safe on paper) |
-| Success             | `--wp-success`        | `#3C7A5A` | "Bookable now", positive text                    |
-| Success bg          | `--wp-success-bg`     | `#E7F1EA` | "Bookable now" badge background                  |
-| Error only          | `--wp-danger`         | `#B4453A` | Errors — never for emphasis                       |
+| Role             | Token                | Hex       | Use                                              |
+| ---------------- | -------------------- | --------- | ------------------------------------------------ |
+| Navy ink         | `--wp-ink`           | `#20263B` | Headings, primary buttons, ink, dark panels      |
+| Ink (gradient)   | `--wp-ink-2`         | `#2B3450` | Card-mark gradient start                         |
+| Ink (deep)       | `--wp-ink-3`         | `#161B2C` | Gradient end, deepest shadow                     |
+| Body             | `--wp-body`          | `#4A5063` | Body copy on paper                               |
+| Muted            | `--wp-muted`         | `#6C7385` | Secondary text                                   |
+| Muted 2          | `--wp-muted-2`       | `#9AA0AE` | Tertiary text, placeholders, hex captions        |
+| Warm paper       | `--wp-paper`         | `#F7F4ED` | App background, primary-button text              |
+| Canvas           | `--wp-canvas`        | `#E7E4DD` | Deeper canvas behind panels                      |
+| Panel white      | `--wp-panel`         | `#FFFFFF` | Cards, panels                                    |
+| Track            | `--wp-track`         | `#EFEBE2` | Progress track, subtle fills, "stretch" badge bg |
+| Surface 2        | `--wp-surface-2`     | `#EBE6DC` | Active nav pill, "reachable" badge bg            |
+| Border           | `--wp-border`        | `#E6E0D4` | Hairline borders                                 |
+| Border 2         | `--wp-border-2`      | `#DED8CC` | Panel borders, input borders                     |
+| Divider          | `--wp-divider`       | `#D2CEC4` | Section rules                                    |
+| Dashed           | `--wp-border-dashed` | `#C9C2B2` | "No card art" dashed placeholders                |
+| **Champagne**    | `--wp-accent`        | `#C6A35C` | THE accent — fills, dots, lines, focus ring      |
+| Champagne (text) | `--wp-accent-text`   | `#8C6E2C` | Accent-colored **text** (contrast-safe on paper) |
+| Success          | `--wp-success`       | `#3C7A5A` | "Bookable now", positive text                    |
+| Success bg       | `--wp-success-bg`    | `#E7F1EA` | "Bookable now" badge background                  |
+| Error only       | `--wp-danger`        | `#B4453A` | Errors — never for emphasis                      |
 
 ### The accent-restraint rule — champagne ≤ 5 per screen
 

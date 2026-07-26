@@ -69,6 +69,9 @@ jobs:
       - name: Admin apply/reject smoke test
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ci/admin-smoke.sql
 
+      - name: Goal-creation smoke test (0005 constraint relaxation)
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/ci/goal-insert-smoke.sql
+
       - name: Generated types are current
         run: |
           pnpm db:types

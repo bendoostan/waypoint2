@@ -117,18 +117,34 @@ from public.goals
 where destination_airport is not null;
 
 -- The goals origin/destination/cabin/month columns are deprecated in favour of
--- goal_legs. They are left in place and untouched (0001-0004 are frozen); new
--- code reads goal_legs and nothing writes these columns.
+-- goal_legs, now the sole source of truth for the itinerary. The backfill above
+-- already read their current values (all still populated for any pre-0005 row),
+-- so we can now relax the constraints that only govern FUTURE inserts. Migration
+-- 0002 made origin_airport and cabin NOT NULL and added a cross-column check
+-- requiring a destination — from before legs existed. Drop all three so a new
+-- goal writes only title/num_travelers/flexibility here and its goal_legs rows
+-- carry the itinerary. (0001-0004 are frozen; these ALTERs live in 0005, which
+-- has never been applied to any hosted project.) Postgres can't express "a goal
+-- has a valid leg 1" across tables, so the app inserts goals + goal_legs in one
+-- transaction and rolls the goal back if the legs insert fails.
+alter table public.goals
+  alter column origin_airport drop not null,
+  alter column cabin drop not null;
+
+-- The "destination_airport is not null or destination_region is not null" check
+-- (goals_check), looked up by definition rather than a guessed name.
+alter table public.goals drop constraint goals_check;
+
 comment on column public.goals.origin_airport is
-  'Deprecated (0005): read goal_legs instead. Left in place, never written.';
+  'Nullable & deprecated (0005): read goal_legs instead; new code never writes it.';
 comment on column public.goals.destination_airport is
-  'Deprecated (0005): read goal_legs instead. Left in place, never written.';
+  'Nullable & deprecated (0005): read goal_legs instead; new code never writes it.';
 comment on column public.goals.destination_region is
-  'Deprecated (0005): read goal_legs instead. Left in place, never written.';
+  'Nullable & deprecated (0005): read goal_legs instead; new code never writes it.';
 comment on column public.goals.cabin is
-  'Deprecated (0005): read goal_legs instead. Left in place, never written.';
+  'Nullable & deprecated (0005): read goal_legs instead; new code never writes it.';
 comment on column public.goals.travel_month is
-  'Deprecated (0005): read goal_legs instead. Left in place, never written.';
+  'Nullable & deprecated (0005): read goal_legs instead; new code never writes it.';
 
 -- --------------------------------------------------------------------------
 -- RLS + grants for goal_legs — owner-only, mirroring goals exactly

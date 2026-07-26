@@ -313,40 +313,40 @@ export type Database = {
       }
       goals: {
         Row: {
-          cabin: string
+          cabin: string | null
           created_at: string
           destination_airport: string | null
           destination_region: string | null
           flexibility: string
           id: string
           num_travelers: number
-          origin_airport: string
+          origin_airport: string | null
           title: string
           travel_month: string | null
           user_id: string
         }
         Insert: {
-          cabin: string
+          cabin?: string | null
           created_at?: string
           destination_airport?: string | null
           destination_region?: string | null
           flexibility?: string
           id?: string
           num_travelers?: number
-          origin_airport: string
+          origin_airport?: string | null
           title: string
           travel_month?: string | null
           user_id: string
         }
         Update: {
-          cabin?: string
+          cabin?: string | null
           created_at?: string
           destination_airport?: string | null
           destination_region?: string | null
           flexibility?: string
           id?: string
           num_travelers?: number
-          origin_airport?: string
+          origin_airport?: string | null
           title?: string
           travel_month?: string | null
           user_id?: string

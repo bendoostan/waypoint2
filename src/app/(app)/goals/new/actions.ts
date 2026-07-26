@@ -73,26 +73,15 @@ export async function createGoal(input: CreateGoalInput): Promise<FormState> {
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "not signed in" };
 
-  const leg1 = legs[0]!;
-
-  // goal_legs is the source of truth for the itinerary. The goals row still
-  // carries origin_airport/destination_*/cabin/travel_month as NOT NULL columns
-  // (frozen since migration 0002, and this phase adds no migration), so we MUST
-  // populate them to insert at all — we mirror leg 1 into them purely to satisfy
-  // those constraints. New code reads goal_legs, never these columns.
+  // goal_legs is the sole source of truth for the itinerary. Migration 0005
+  // relaxed goals' deprecated origin_airport/destination_*/cabin/travel_month
+  // columns to nullable, so a goal writes only these three trip-level fields
+  // here; everything per-leg lives in goal_legs. Postgres can't enforce "a goal
+  // has a valid leg 1" across tables, so we insert both together and roll the
+  // goal back if the legs insert fails (below).
   const { data: goal, error: goalErr } = await supabase
     .from("goals")
-    .insert({
-      user_id: user.id,
-      title,
-      num_travelers,
-      flexibility,
-      origin_airport: leg1.origin_airport,
-      destination_airport: leg1.destination_airport,
-      destination_region: leg1.destination_region,
-      cabin: leg1.cabin,
-      travel_month: leg1.travel_month,
-    })
+    .insert({ user_id: user.id, title, num_travelers, flexibility })
     .select("id")
     .single();
   if (goalErr || !goal) {

@@ -53,8 +53,11 @@ function buildLegs(goal: GoalRow, goalLegs: GoalLegRow[]): EngineLeg[] {
         travel_month: l.travel_month,
       }));
   }
-  // Fallback: synthesize a single (seq 1) leg from the goal's deprecated
-  // columns, for any goal that predates its goal_legs backfill.
+  // Fallback: a legacy goal predating the goal_legs backfill still carries its
+  // itinerary in the deprecated goals columns. Migration 0005 made those columns
+  // nullable; a goal created under the current regime always has goal_legs, so
+  // when they're null there is simply no leg to synthesize.
+  if (goal.origin_airport === null || goal.cabin === null) return [];
   return [
     {
       seq: 1,

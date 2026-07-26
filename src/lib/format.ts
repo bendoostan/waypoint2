@@ -4,6 +4,22 @@ export function fmtInt(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+// Short wordmarks for the brand tiles (brand color + wordmark, never a logo).
+const ISSUER_WORDMARKS: Record<string, string> = {
+  Chase: "Chase",
+  "American Express": "Amex",
+  "Capital One": "C1",
+};
+
+export function issuerWordmark(issuer: string): string {
+  return ISSUER_WORDMARKS[issuer] ?? issuer.split(/\s+/)[0] ?? issuer;
+}
+
+/** A program's short mark, e.g. "Chase Ultimate Rewards" -> "Chase". */
+export function programWordmark(name: string): string {
+  return name.split(/\s+/)[0] ?? name;
+}
+
 export function fmtUsd(n: number): string {
   return `$${n.toLocaleString("en-US", {
     minimumFractionDigits: 0,

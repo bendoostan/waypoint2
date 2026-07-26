@@ -3,27 +3,78 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Waypoint design system — Phase 3a, extracted verbatim from the Claude Design
+ * deliverable ("Waypoint Phase 3a.dc.html"). See design/DESIGN.md for the
+ * codified rules. Light mode only; the .dark block below is left untouched and
+ * never activated (we never set the `.dark` class).
+ *
+ * The --wp-* primitives are the source of truth. The shadcn semantic names
+ * (--background, --primary, --border, ...) are MAPPED onto them, so every
+ * vendored component and the whole Phase 2 admin portal inherit the new look
+ * with zero changes to their own code.
+ */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  /* Ink — navy, deliberately not black */
+  --wp-ink: #20263b; /* headings, primary surfaces, ink */
+  --wp-ink-2: #2b3450; /* card-mark gradient start */
+  --wp-ink-3: #161b2c; /* darkest — gradient end, deep shadow */
+  --wp-body: #4a5063; /* body copy on paper */
+  --wp-muted: #6c7385; /* secondary text */
+  --wp-muted-2: #9aa0ae; /* tertiary text, placeholders */
+
+  /* Paper — warm, layered */
+  --wp-paper: #f7f4ed; /* app background */
+  --wp-canvas: #e7e4dd; /* deeper canvas behind panels */
+  --wp-panel: #ffffff; /* panel / card surface */
+  --wp-track: #efebe2; /* progress track, subtle fill */
+  --wp-surface-2: #ebe6dc; /* active nav pill, "reachable" badge */
+
+  /* Lines */
+  --wp-border: #e6e0d4; /* hairline border */
+  --wp-border-2: #ded8cc; /* panel border, inputs */
+  --wp-divider: #d2cec4; /* section rules */
+  --wp-border-dashed: #c9c2b2; /* dashed placeholders */
+
+  /* Champagne — THE accent. Ceiling of 5 uses per screen (see DESIGN.md).
+     --wp-accent is the fill/dot/line value; it fails 4.5:1 as text on paper,
+     so --wp-accent-text is the darkened variant for any accent-colored text. */
+  --wp-accent: #c6a35c;
+  --wp-accent-text: #8c6e2c;
+
+  /* Semantics — used sparingly, never alarmist */
+  --wp-success: #3c7a5a;
+  --wp-success-bg: #e7f1ea;
+  --wp-danger: #b4453a; /* error only */
+
+  /* Elevation (extracted) */
+  --wp-shadow-sm: 0 1px 3px rgba(32, 38, 59, 0.08);
+  --wp-shadow-panel: 0 24px 60px -28px rgba(32, 38, 59, 0.4);
+  --wp-shadow-dark: 0 16px 34px -18px rgba(22, 27, 44, 0.7);
+
+  /* ---- shadcn semantic tokens, mapped onto the primitives ---- */
+  --radius: 0.75rem; /* buttons ~10px (md), cards ~14px (lg), panels ~16px (xl) */
+  --background: var(--wp-paper);
+  --foreground: var(--wp-ink);
+  --card: var(--wp-panel);
+  --card-foreground: var(--wp-ink);
+  --popover: var(--wp-panel);
+  --popover-foreground: var(--wp-ink);
+  --primary: var(--wp-ink);
+  --primary-foreground: var(--wp-paper);
+  --secondary: var(--wp-track);
+  --secondary-foreground: var(--wp-ink);
+  --muted: var(--wp-track);
+  --muted-foreground: var(--wp-muted);
+  /* shadcn --accent drives hover fills, NOT the champagne accent — keep it a
+     neutral surface so restraint holds. The champagne lives in --wp-accent. */
+  --accent: var(--wp-surface-2);
+  --accent-foreground: var(--wp-ink);
+  --destructive: var(--wp-danger);
+  --destructive-foreground: #ffffff;
+  --border: var(--wp-border);
+  --input: var(--wp-border-2);
+  --ring: var(--wp-accent); /* champagne focus ring — transient, on-brand */
 }
 
 .dark {
@@ -72,8 +123,38 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  /* Waypoint primitives exposed as Tailwind colors (e.g. bg-wp-paper,
+     text-wp-accent-text, border-wp-border-2) for the screens built this phase. */
+  --color-wp-ink: var(--wp-ink);
+  --color-wp-ink-2: var(--wp-ink-2);
+  --color-wp-ink-3: var(--wp-ink-3);
+  --color-wp-body: var(--wp-body);
+  --color-wp-muted: var(--wp-muted);
+  --color-wp-muted-2: var(--wp-muted-2);
+  --color-wp-paper: var(--wp-paper);
+  --color-wp-canvas: var(--wp-canvas);
+  --color-wp-panel: var(--wp-panel);
+  --color-wp-track: var(--wp-track);
+  --color-wp-surface-2: var(--wp-surface-2);
+  --color-wp-border: var(--wp-border);
+  --color-wp-border-2: var(--wp-border-2);
+  --color-wp-divider: var(--wp-divider);
+  --color-wp-border-dashed: var(--wp-border-dashed);
+  --color-wp-accent: var(--wp-accent);
+  --color-wp-accent-text: var(--wp-accent-text);
+  --color-wp-success: var(--wp-success);
+  --color-wp-success-bg: var(--wp-success-bg);
+  --color-wp-danger: var(--wp-danger);
+
+  /* Type roles: Inter carries body; Fraunces is the display serif. */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-fraunces), ui-serif, Georgia, serif;
+  --font-mono: ui-monospace, "JetBrains Mono", SFMono-Regular, monospace;
+
+  --shadow-wp-sm: var(--wp-shadow-sm);
+  --shadow-wp-panel: var(--wp-shadow-panel);
+  --shadow-wp-dark: var(--wp-shadow-dark);
 }
 
 @layer base {
@@ -82,5 +163,30 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  /* Display headings use Fraunces with the extracted tight tracking. */
+  .font-display {
+    font-family: var(--font-serif);
+    letter-spacing: -0.02em;
+  }
+  /* Eyebrow labels: tracked, uppercase, champagne. Restrained by design. */
+  .wp-eyebrow {
+    font-size: 0.6875rem; /* 11px */
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--wp-accent-text);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

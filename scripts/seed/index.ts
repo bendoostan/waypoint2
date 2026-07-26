@@ -104,7 +104,8 @@ async function main() {
           alliance = excluded.alliance, cashback_cpp = excluded.cashback_cpp,
           transfer_cpp = excluded.transfer_cpp,
           requires_unlock = excluded.requires_unlock,
-          is_active = excluded.is_active, notes = excluded.notes
+          is_active = excluded.is_active, notes = excluded.notes,
+          brand_color = excluded.brand_color
       `;
     }
     console.log(`currencies: ${currencies.length} upserted`);
@@ -116,7 +117,8 @@ async function main() {
           name = excluded.name, issuer = excluded.issuer,
           currency_id = excluded.currency_id, annual_fee = excluded.annual_fee,
           unlocks_transfers = excluded.unlocks_transfers,
-          is_active = excluded.is_active, notes = excluded.notes
+          is_active = excluded.is_active, notes = excluded.notes,
+          brand_color = excluded.brand_color
       `;
     }
     console.log(`cards: ${cards.length} upserted`);
@@ -185,7 +187,9 @@ async function main() {
           cabin = excluded.cabin, points_oneway = excluded.points_oneway,
           taxes_fees_usd_est = excluded.taxes_fees_usd_est,
           booking_url = excluded.booking_url, notes = excluded.notes,
-          is_active = excluded.is_active
+          is_active = excluded.is_active,
+          booking_unit = excluded.booking_unit,
+          pricing_mode = excluded.pricing_mode
       `;
     }
     console.log(`award_routes: ${awardRoutes.length} upserted`);

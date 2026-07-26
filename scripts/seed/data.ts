@@ -23,6 +23,7 @@ export const CURRENCY_IDS = {
   ana: "11111111-1111-4111-8111-000000000007",
   krisflyer: "11111111-1111-4111-8111-000000000008",
   baAvios: "11111111-1111-4111-8111-000000000009",
+  virginAtlantic: "11111111-1111-4111-8111-000000000010",
 } as const;
 
 export const CARD_IDS = {
@@ -33,6 +34,9 @@ export const CARD_IDS = {
   unitedExplorer: "22222222-2222-4222-8222-000000000005",
 } as const;
 
+// brand_color values are plausible brand hues carrying 'seed' provenance in
+// notes, so the Phase 3 design has something to render; research jobs refine
+// them later. logo_url is deliberately left null (nothing populates it yet).
 export const currencies: Tables["currencies"]["Insert"][] = [
   {
     id: CURRENCY_IDS.chaseUR,
@@ -44,6 +48,7 @@ export const currencies: Tables["currencies"]["Insert"][] = [
     requires_unlock: true, // the Freedom->Sapphire mechanic
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#117ACA",
   },
   {
     id: CURRENCY_IDS.amexMR,
@@ -55,6 +60,7 @@ export const currencies: Tables["currencies"]["Insert"][] = [
     requires_unlock: true,
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#006FCF",
   },
   {
     id: CURRENCY_IDS.capitalOne,
@@ -66,6 +72,7 @@ export const currencies: Tables["currencies"]["Insert"][] = [
     requires_unlock: false,
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#004977",
   },
   {
     id: CURRENCY_IDS.united,
@@ -77,6 +84,7 @@ export const currencies: Tables["currencies"]["Insert"][] = [
     requires_unlock: false,
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#0033A0",
   },
   {
     id: CURRENCY_IDS.aeroplan,
@@ -88,6 +96,7 @@ export const currencies: Tables["currencies"]["Insert"][] = [
     requires_unlock: false,
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#D22630",
   },
   {
     id: CURRENCY_IDS.flyingBlue,
@@ -99,6 +108,7 @@ export const currencies: Tables["currencies"]["Insert"][] = [
     requires_unlock: false,
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#001560",
   },
   {
     id: CURRENCY_IDS.ana,
@@ -110,6 +120,7 @@ export const currencies: Tables["currencies"]["Insert"][] = [
     requires_unlock: false,
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#1D2088",
   },
   {
     id: CURRENCY_IDS.krisflyer,
@@ -121,6 +132,7 @@ export const currencies: Tables["currencies"]["Insert"][] = [
     requires_unlock: false,
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#F99F1C",
   },
   {
     id: CURRENCY_IDS.baAvios,
@@ -132,6 +144,22 @@ export const currencies: Tables["currencies"]["Insert"][] = [
     requires_unlock: false,
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#075AAA",
+  },
+  {
+    // Virgin Atlantic Flying Club — the receiving program for the single most
+    // recognised sweet spot in the hobby (ANA business via Virgin), reachable
+    // from both Chase and Amex.
+    id: CURRENCY_IDS.virginAtlantic,
+    name: "Virgin Atlantic Flying Club",
+    kind: "airline",
+    alliance: null, // ANA is a bilateral Virgin partner, not an alliance mate
+    cashback_cpp: 0,
+    transfer_cpp: 1.5,
+    requires_unlock: false,
+    is_active: true,
+    notes: SEED_NOTE,
+    brand_color: "#E10A0A",
   },
 ];
 
@@ -145,6 +173,7 @@ export const cards: Tables["card_catalog"]["Insert"][] = [
     unlocks_transfers: true,
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#12395B",
   },
   {
     id: CARD_IDS.freedomUnlimited,
@@ -155,6 +184,7 @@ export const cards: Tables["card_catalog"]["Insert"][] = [
     unlocks_transfers: false,
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#117ACA",
   },
   {
     id: CARD_IDS.amexGold,
@@ -165,6 +195,7 @@ export const cards: Tables["card_catalog"]["Insert"][] = [
     unlocks_transfers: true,
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#C6A15B",
   },
   {
     id: CARD_IDS.ventureX,
@@ -175,6 +206,7 @@ export const cards: Tables["card_catalog"]["Insert"][] = [
     unlocks_transfers: true,
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#13294B",
   },
   {
     id: CARD_IDS.unitedExplorer,
@@ -185,6 +217,7 @@ export const cards: Tables["card_catalog"]["Insert"][] = [
     unlocks_transfers: false,
     is_active: true,
     notes: SEED_NOTE,
+    brand_color: "#0033A0",
   },
 ];
 
@@ -451,6 +484,30 @@ export const transferPartners: Tables["transfer_partners"]["Insert"][] = [
     is_active: true,
     notes: SEED_NOTE,
   },
+  // Both Chase and Amex reach Virgin Atlantic 1:1 — the two edges that make the
+  // ANA-via-Virgin sweet spot bookable from a typical bank-points wallet.
+  {
+    from_currency_id: CURRENCY_IDS.chaseUR,
+    to_currency_id: CURRENCY_IDS.virginAtlantic,
+    ratio_num: 1,
+    ratio_den: 1,
+    transfer_hours_est: 0,
+    min_transfer: 1000,
+    increment: 1000,
+    is_active: true,
+    notes: SEED_NOTE,
+  },
+  {
+    from_currency_id: CURRENCY_IDS.amexMR,
+    to_currency_id: CURRENCY_IDS.virginAtlantic,
+    ratio_num: 1,
+    ratio_den: 1,
+    transfer_hours_est: 0,
+    min_transfer: 1000,
+    increment: 1000,
+    is_active: true,
+    notes: SEED_NOTE,
+  },
   {
     from_currency_id: CURRENCY_IDS.capitalOne,
     to_currency_id: CURRENCY_IDS.aeroplan,
@@ -506,6 +563,9 @@ export const BONUS_EDGE = {
   to_currency_id: CURRENCY_IDS.flyingBlue,
 } as const;
 
+// pricing_mode is set explicitly on every route (never relying on the default):
+// V1 ships fixed charts only. The premium-economy variants give the cabin
+// alternative something to find one rung down from business.
 export const awardRoutes: Tables["award_routes"]["Insert"][] = [
   {
     name: "ANA business class to Japan (round-trip)",
@@ -520,6 +580,43 @@ export const awardRoutes: Tables["award_routes"]["Insert"][] = [
     booking_url: "https://www.ana.co.jp/en/us/amc/",
     // booking_unit encodes "round trip only"; points_oneway is per direction.
     booking_unit: "round_trip",
+    pricing_mode: "fixed",
+    notes: "seed; points_oneway is half the round-trip price",
+    is_active: true,
+  },
+  {
+    // The single most recognised sweet spot in the hobby: Virgin Atlantic
+    // Flying Club prices ANA metal to Japan far below ANA's own chart, but only
+    // as a round trip. Reached 1:1 from both Chase and Amex.
+    name: "ANA business class to Japan via Virgin Atlantic (round-trip)",
+    program_currency_id: CURRENCY_IDS.virginAtlantic,
+    origin_region: "US West Coast",
+    origin_airports: ["LAX", "SFO", "SEA"],
+    destination_region: "Japan",
+    destination_airports: ["NRT", "HND"],
+    cabin: "business",
+    points_oneway: 22500,
+    taxes_fees_usd_est: 250,
+    booking_url: "https://www.virginatlantic.com/",
+    booking_unit: "round_trip",
+    pricing_mode: "fixed",
+    notes: "seed; 45k round trip via Virgin Atlantic; points_oneway is half",
+    is_active: true,
+  },
+  {
+    // Premium-economy variant of the ANA business route — one cabin down.
+    name: "ANA premium economy to Japan (round-trip)",
+    program_currency_id: CURRENCY_IDS.ana,
+    origin_region: "US West Coast",
+    origin_airports: ["LAX", "SFO", "SEA"],
+    destination_region: "Japan",
+    destination_airports: ["NRT", "HND"],
+    cabin: "premium_economy",
+    points_oneway: 30000,
+    taxes_fees_usd_est: 200,
+    booking_url: "https://www.ana.co.jp/en/us/amc/",
+    booking_unit: "round_trip",
+    pricing_mode: "fixed",
     notes: "seed; points_oneway is half the round-trip price",
     is_active: true,
   },
@@ -534,6 +631,26 @@ export const awardRoutes: Tables["award_routes"]["Insert"][] = [
     points_oneway: 20000,
     taxes_fees_usd_est: 120,
     booking_url: "https://www.flyingblue.com/",
+    booking_unit: "one_way",
+    pricing_mode: "fixed",
+    notes: SEED_NOTE,
+    is_active: true,
+  },
+  {
+    // Premium-economy variant of the Flying Blue economy route — one cabin up
+    // from economy, so a business/first Europe goal has a lower cabin to find.
+    name: "Flying Blue premium economy to Europe",
+    program_currency_id: CURRENCY_IDS.flyingBlue,
+    origin_region: "US East Coast",
+    origin_airports: ["JFK", "BOS", "IAD"],
+    destination_region: "Europe",
+    destination_airports: ["CDG", "AMS"],
+    cabin: "premium_economy",
+    points_oneway: 35000,
+    taxes_fees_usd_est: 150,
+    booking_url: "https://www.flyingblue.com/",
+    booking_unit: "one_way",
+    pricing_mode: "fixed",
     notes: SEED_NOTE,
     is_active: true,
   },
@@ -548,6 +665,8 @@ export const awardRoutes: Tables["award_routes"]["Insert"][] = [
     points_oneway: 22500,
     taxes_fees_usd_est: 6,
     booking_url: "https://www.united.com/",
+    booking_unit: "one_way",
+    pricing_mode: "fixed",
     notes: SEED_NOTE,
     is_active: true,
   },

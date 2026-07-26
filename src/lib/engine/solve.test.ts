@@ -206,11 +206,13 @@ describe("matchRoundTripRoutes (round_trip routes cover both legs)", () => {
     cabin: "business",
   });
 
-  it("matches ANA when the two legs are exact reverses", () => {
+  it("matches both ANA business round trips when the legs are exact reverses", () => {
+    // The seed now carries two round_trip business Japan routes on the same
+    // O/D — ANA's own chart and the Virgin Atlantic sweet spot — so both match.
     const candidates = matchRoundTripRoutes(seedAwardRoutes, out, back, []);
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0]!.route.name).toContain("ANA");
-    expect(candidates[0]!.match_type).toBe("airport");
+    expect(candidates).toHaveLength(2);
+    expect(candidates.every((c) => c.route.name.includes("ANA"))).toBe(true);
+    expect(candidates.every((c) => c.match_type === "airport")).toBe(true);
   });
 
   it("rejects legs that are not exact reverses", () => {

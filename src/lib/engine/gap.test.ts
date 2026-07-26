@@ -199,6 +199,47 @@ describe("closeGap bonus_month", () => {
     expect(closure.months_held).toBeNull();
   });
 
+  it("2c. just-barely: minimum reached in the final window month is eligible", () => {
+    // $2,000/mo, $6,000 minimum, 3-month window -> ceil(6000/2000) = 3, which
+    // equals the window exactly: the offer IS achievable and the bonus posts
+    // in month 3 (the boundary the old clamp got right only by accident).
+    const closure = close({
+      cards: [mkCard(CARD_A, "Boundary Card")],
+      offers: [
+        mkOffer("offer-a", CARD_A, {
+          points: 120_000,
+          min_spend_usd: 6_000,
+          window_months: 3,
+        }),
+      ],
+      earningRates: [mkRate(CARD_A)],
+      monthlySpend: { dining: 2_000 },
+    });
+
+    expect(closure.recommended_card?.card_id).toBe(CARD_A);
+    expect(closure.bonus_month).toBe(3); // ceil(6000/2000) === window
+  });
+
+  it("2d. just-over: one month too slow for the same offer is ineligible", () => {
+    // Same offer, same pace, one month shorter window: ceil(6000/2000) = 3 > 2,
+    // so it is unachievable — recommended null, bonus_month null.
+    const closure = close({
+      cards: [mkCard(CARD_A, "Boundary Card")],
+      offers: [
+        mkOffer("offer-a", CARD_A, {
+          points: 120_000,
+          min_spend_usd: 6_000,
+          window_months: 2,
+        }),
+      ],
+      earningRates: [mkRate(CARD_A)],
+      monthlySpend: { dining: 2_000 },
+    });
+
+    expect(closure.recommended_card).toBeNull();
+    expect(closure.bonus_month).toBeNull();
+  });
+
   it("4. regression: $6,000 / $900 / 3mo never reports bonus_month === 3", () => {
     const closure = close({
       cards: [mkCard(CARD_A, "High Min")],

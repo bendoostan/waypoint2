@@ -156,7 +156,7 @@ header, and `/admin/queue` has the three seeded proposals to review.
 ## Repository layout
 
 ```
-supabase/migrations/   0001_reference, 0002_users, 0003_pipeline
+supabase/migrations/   0001_reference, 0002_users, 0003_pipeline, 0004_admin, 0005_legs
 scripts/seed/          typed seed data + idempotent runner
 scripts/ci/            supabase-shim.sql for Docker-less verification
 src/lib/supabase/      typed client helpers (client/server/middleware)

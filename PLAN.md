@@ -252,13 +252,31 @@ Sequence rationale: engine before admin (admin edits what the engine reads — s
 
 ---
 
-## Prompt index (generated one at a time)
+## Prompt index / status
 
-- ✅ **Prompt 1** — Phase 0 foundation (above)
-- ⬜ **Prompt 2** — Phase 1: engine v1 + test suite _(generate after Phase 0 review; will include golden test cases — Freedom-unlock scenario, bonus-window math, multi-hop transfer)_
-- ⬜ **Prompt 3** — Phase 2: admin portal + review queue
-- ⬜ **Prompt 4** — Phase 3: Claude Design brief (consumer app, inheriting prototype's editorial aesthetic) then Claude Code implementation
-- ⬜ **Prompt 5** — Phase 4: Trigger.dev research jobs + Seats.aero
-- ⬜ **Prompt 6** — Phase 5: hardening, evals, SEO/affiliate
+Phase numbering has grown more granular than the table in §7 as work actually
+shipped (an engine amendment inserted as 1.5, Phase 3 split into a design
+pass and three consumer-UI sub-phases, the pipeline phase split so Seats.aero
+tracks separately from the AI research jobs). Status below reflects that
+real numbering.
+
+- ✅ **Phase 0** — foundation (repo, Supabase, migrations, seed, CI, `CLAUDE.md`)
+- ✅ **Phase 1** — engine v1 + test suite
+- ✅ **Phase 1.5** — engine amendment: multi-leg (open-jaw) trips as first-class
+  (`goal_legs`, `migration 0005_legs`), `cabin_alternative` and `pricing_mode`
+  in `schema.ts`
+- ✅ **Phase 2** — admin portal + review queue
+- ✅ **Phase 3a** — Claude Design brief for the consumer app, approved
+  (tokens/fonts/`design/DESIGN.md`)
+- ✅ **Phase 3b-i** — wallet, goal creation (open-jaw-aware wizard), admin
+  transfer graph
+- ⬜ **Phase 3b-ii / 3b-iii** — remaining consumer screens (plan page,
+  timeline visual)
+- ⏸ **Phase 4** — Trigger.dev AI research jobs → staging. Deliberately
+  deferred past initial launch: admin's manual CRUD plus hand-curated routes
+  cover v1 content.
+- ⬜ **Phase 5** — hardening, evals, SEO/affiliate
+- ⏸ **Phase 7** — Seats.aero live-availability integration. Deliberately
+  deferred past initial launch for the same reason as Phase 4.
 
 _Open items parked deliberately: application rules (5/24) → Phase 2+; hotel awards → post-launch; own cpp valuations from award data → post-launch; affiliate network application → start paperwork during Phase 2, it's slow._

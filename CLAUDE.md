@@ -3,6 +3,13 @@
 Read `PLAN.md` before anything else — it is the source of truth for
 architecture, schema, and principles. This file covers day-to-day mechanics.
 
+**Always work from `main`.** Every new session or branch starts from
+`main` at its current tip — never from another `claude/*` branch, an old
+PR, or any other starting point. `main` is the repo's default branch and
+the only shared trunk; branching from anywhere else is what caused past
+regressions (divergent branches with no common ancestor to reconcile
+against).
+
 ## Stack
 
 - Next.js 15, App Router, TypeScript strict, `src/` layout, `@/*` alias
@@ -88,10 +95,12 @@ time-dependent function takes `now: Date`.
 | `index.ts`            | `generatePlan(input)`: composes everything, zod-parses output           |
 | `from-db.ts`          | DB rows → `EngineInput` mapping (types only, no fetching)               |
 
-**`legs` caveat:** goals have no one-way/round-trip column yet. The engine
-takes `legs: 1 | 2` as an explicit input and callers default to 2 (round
-trip). Adding a goal column for it is a Phase 3 decision — do not migrate
-for it earlier.
+**`legs` caveat:** a goal's itinerary lives in `goal_legs` (1 or 2 rows,
+ordered by `leg_index`), not on `goals` directly — `goals.origin_airport`/
+`destination_airport`/`destination_region`/`cabin`/`travel_month` are
+nullable and deprecated (migration `0005_legs`), kept only so a pre-0005 row
+with no `goal_legs` rows still resolves as a single leg. New code always
+writes `goal_legs`; the engine takes the resolved legs as an explicit input.
 
 ## Admin portal (`src/app/(app)/admin/`)
 

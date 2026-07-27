@@ -1,0 +1,6 @@
+allowBuilds:
+  supabase: true
+  sharp: true
+  unrs-resolver: true
+  esbuild: false
+  "@sentry-internal/node-cpu-profiler": false

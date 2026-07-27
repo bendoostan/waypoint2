@@ -59,12 +59,5 @@
   },
   "engines": {
     "node": ">=22"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "supabase",
-      "sharp",
-      "unrs-resolver"
-    ]
   }
 }

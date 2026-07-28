@@ -115,6 +115,68 @@ describe("generatePlan — Freedom unlock end to end", () => {
   });
 });
 
+describe("generatePlan — a card that unlocks a held balance gets credit for it (Phase 1.6)", () => {
+  // Same wallet as the "$800 unlock" test above (80,000 locked Chase UR via
+  // Freedom Unlimited, no Sapphire held, empty spend) — but this time reading
+  // the Virgin Atlantic ANA route, which Chase UR CAN reach directly (unlike
+  // the direct ANA route, which only Amex MR reaches — so that strategy
+  // correctly sees no unlock benefit; this one is where the fix bites).
+  it("Sapphire's recommendation credits the released UR balance, not just its own bonus", () => {
+    const result = generatePlan(
+      input({ wallet: [walletCard(cardByName("Freedom Unlimited"), 80_000)] })
+    );
+    const viaVirgin = result.strategies.find((s) =>
+      s.legs[0]!.route_name.includes("Virgin Atlantic")
+    );
+    expect(viaVirgin).toBeDefined();
+
+    // reachable_points is unaffected by the fix — it means "transferable with
+    // the cards you hold today", and Sapphire isn't held.
+    expect(viaVirgin!.legs.every((l) => l.reachable_points === 0)).toBe(true);
+    expect(viaVirgin!.points_needed_total).toBe(45_000); // 22,500 × 2
+
+    expect(viaVirgin!.recommended_card?.card_name).toBe("Sapphire Preferred");
+    // The 45,000-point trip is entirely closeable by the released 80,000 UR
+    // balance (capped at what's needed) — the welcome bonus adds nothing
+    // beyond that, but the unlock alone gets the trip there.
+    expect(viaVirgin!.recommended_card?.unlocked_points).toBe(45_000);
+    expect(viaVirgin!.tier).toBe("needs_card");
+    // Ready the month the card is approved — no spend, no waiting on a bonus.
+    expect(viaVirgin!.months_to_goal).toBe(1);
+    expect(viaVirgin!.rationale).toContain("releases");
+  });
+
+  it("places the unlock event at approval, before any welcome-bonus event, never assuming both legs got a shared balance", () => {
+    const result = generatePlan(
+      input({ wallet: [walletCard(cardByName("Freedom Unlimited"), 80_000)] })
+    );
+    const viaVirgin = result.strategies.find((s) =>
+      s.legs[0]!.route_name.includes("Virgin Atlantic")
+    );
+    const timeline = viaVirgin!.timeline;
+
+    // Month 1 (2026-09): the round trip's shared UR balance covers both legs
+    // (22,500 needed each, 45,000 released — exact match), so it books then.
+    expect(timeline).toHaveLength(2);
+    expect(timeline[0]!.month).toBe("2026-08");
+    expect(timeline[0]!.events).toHaveLength(0);
+    expect(timeline[1]!.month).toBe("2026-09");
+    expect(timeline[1]!.projected_pct).toBe(100);
+
+    const types = timeline[1]!.events.map((e) => e.type);
+    expect(types.filter((t) => t === "unlock")).toHaveLength(2); // one per leg
+    // Every unlock event in the array precedes every book event — the
+    // released balance is what makes the booking possible, in that order.
+    const lastUnlockIdx = types.lastIndexOf("unlock");
+    const firstBookIdx = types.indexOf("book");
+    expect(lastUnlockIdx).toBeLessThan(firstBookIdx);
+    // No welcome-bonus event at all: spend is unset in this fixture, so
+    // bonus_month is null and the bonus never posts — the unlock alone
+    // closes the trip, which is exactly the point of crediting it.
+    expect(types).not.toContain("welcome_bonus_posts");
+  });
+});
+
 describe("generatePlan — four tiers land and sort in order (single-leg)", () => {
   const P = "ffffffff-0000-4000-8000-000000000001";
   const currencies: Currency[] = [

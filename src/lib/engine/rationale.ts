@@ -97,6 +97,10 @@ export function rationale(
 
   const card = strategy.recommended_card;
   if (card !== null && strategy.gap_total > 0) {
+    const unlockClause =
+      card.unlocked_points > 0
+        ? ` It also releases ~${fmt(card.unlocked_points)} points already in your wallet.`
+        : "";
     parts.push(
       `Open the ${card.issuer} ${card.card_name}: its ${fmt(
         card.offer_points
@@ -104,7 +108,7 @@ export function rationale(
         card.window_months
       } months, $${fmt(card.annual_fee)} annual fee) is worth ~${fmt(
         card.delivered_points
-      )} points toward this trip.`
+      )} points toward this trip.${unlockClause}`
     );
   }
 

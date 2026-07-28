@@ -39,6 +39,16 @@ export const cardRecommendationSchema = z.object({
   offer_id: z.string().uuid(),
   offer_points: z.number().int().positive(),
   delivered_points: z.number().int().nonnegative(),
+  /**
+   * Points ALREADY held that opening this card releases (unlocks_transfers
+   * flipping a locked balance to transferable), delivered into the
+   * destination program — distinct from delivered_points (the welcome
+   * bonus). Zero for a card that unlocks nothing new. Computed by
+   * re-solving the trip with this card hypothetically added to the wallet
+   * (see gap.ts), so a balance that could help either leg of an open-jaw is
+   * never credited twice.
+   */
+  unlocked_points: z.number().int().nonnegative(),
   min_spend_usd: z.number().int().nonnegative(),
   window_months: z.number().int().positive(),
   annual_fee: z.number().int().nonnegative(),
@@ -58,7 +68,10 @@ export const unlockOpportunitySchema = z.object({
 });
 
 export const timelineEventSchema = z.object({
-  type: z.enum(["welcome_bonus_posts", "transfer", "book"]),
+  // "unlock" = a released, already-held balance becomes usable — placed at
+  // the card's approval month, never at bonus_month (the welcome bonus is a
+  // separate, later event that needs spend to post).
+  type: z.enum(["welcome_bonus_posts", "transfer", "book", "unlock"]),
   description: z.string(),
 });
 

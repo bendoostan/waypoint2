@@ -22,7 +22,15 @@ export function assignTier(gap: number, closure: GapClosure): ReachabilityTier {
 
   if (closure.recommended_card !== null) {
     const withCard = closure.earn_velocity.with_recommended ?? 0;
-    if (closure.recommended_card.delivered_points + withCard * 12 >= gap) {
+    // delivered_points (the welcome bonus) and unlock_points_this_leg (an
+    // already-held balance the card releases) are both immediate-or-soon
+    // sources toward THIS leg's own gap — unlock_points_this_leg is already
+    // leg-attributed by the joint re-solve in gap.ts, never the trip-wide
+    // total, so a two-leg trip can't double-credit one balance to both legs.
+    const immediate =
+      closure.recommended_card.delivered_points +
+      closure.unlock_points_this_leg;
+    if (immediate + withCard * 12 >= gap) {
       return "needs_card";
     }
   }

@@ -1,8 +1,13 @@
 // Stage 5 (PLAN.md §4.5): close the gap with (a) the best welcome offer
-// whose currency can actually reach the target program and (b) earn
+// whose currency can actually reach the target program, crediting BOTH its
+// welcome bonus and any already-held balance it releases, and (b) earn
 // velocity from stated monthly spend. Estimates here use pure ratios —
 // min_transfer/increment rounding applies when transfers actually happen.
-import { bonusPctForEdge } from "./reachability";
+import { effectiveWallet } from "./effective-wallet";
+import { bonusPctForEdge, expandReachability } from "./reachability";
+import type { Reachability } from "./reachability";
+import { solveCandidate } from "./solve";
+import { solveSplit } from "./trip";
 import type { CardRecommendation } from "./schema";
 import type {
   CardCatalog,
@@ -24,6 +29,23 @@ export type GapClosure = {
   months_with_card: number | null;
   /** month index (1-based) when the welcome bonus posts; null if unknowable */
   bonus_month: number | null;
+  /**
+   * THIS leg's share of recommended_card.unlocked_points — not invented, but
+   * read straight off the same joint re-solve that produced the trip-wide
+   * total, so a released balance that could cover either leg of an open-jaw
+   * is attributed to at most one of them. 0 when there's no recommended card
+   * or its unlock releases nothing toward this leg specifically.
+   */
+  unlock_points_this_leg: number;
+};
+
+/** One leg's need, for the joint re-solve `unlockBenefit` runs per candidate. */
+export type LegNeed = {
+  seq: 1 | 2;
+  points_needed: number;
+  dest_currency_id: string;
+  /** This leg's reachable_points from the REAL (non-hypothetical) solve. */
+  reachable_points: number;
 };
 
 /**
@@ -114,9 +136,51 @@ export function earnVelocity(
   return Math.round(total);
 }
 
+/**
+ * Re-solve the trip's legs (jointly, when there are two — same solver the
+ * real plan uses) against a given reachability/wallet snapshot. Returns each
+ * leg's reachable_points under that snapshot.
+ */
+function jointReachable(
+  legs: LegNeed[],
+  reach: Reachability,
+  entries: EffectiveCurrency[],
+  currencies: Currency[]
+): Map<number, number> {
+  if (legs.length === 1) {
+    const l = legs[0]!;
+    const r = solveCandidate(
+      l.points_needed,
+      l.dest_currency_id,
+      reach,
+      entries,
+      currencies
+    );
+    return new Map([[l.seq, r.reachable_points]]);
+  }
+  const [l1, l2] = legs as [LegNeed, LegNeed];
+  const split = solveSplit(
+    l1.points_needed,
+    l1.dest_currency_id,
+    l2.points_needed,
+    l2.dest_currency_id,
+    reach,
+    entries,
+    currencies
+  );
+  return new Map([
+    [l1.seq, split.leg1.reachable_points],
+    [l2.seq, split.leg2.reachable_points],
+  ]);
+}
+
 export function closeGap(params: {
   gap: number;
   destCurrencyId: string;
+  /** Which leg this closure is FOR — attributes unlock_points_this_leg. */
+  legSeq: 1 | 2;
+  /** The trip's full leg set — needed to jointly re-solve unlock candidates. */
+  allLegs: LegNeed[];
   entries: EffectiveCurrency[];
   wallet: WalletCard[];
   currencies: Currency[];
@@ -131,6 +195,8 @@ export function closeGap(params: {
   const {
     gap,
     destCurrencyId,
+    legSeq,
+    allLegs,
     entries,
     wallet,
     currencies,
@@ -166,13 +232,87 @@ export function closeGap(params: {
     );
   };
 
+  // --- unlock credit ---------------------------------------------------------
+  // For a card that would unlock a currency the wallet already holds a
+  // locked, nonzero balance in: how much of the TRIP's shortfall does that
+  // released balance close? Measured by re-solving jointly (effectiveWallet
+  // -> reachability -> the same solver used for the real plan) with a
+  // hypothetical wallet of held cards + this one, at 0 points of its own —
+  // the card's own welcome bonus is delivered_points, kept separate. Routing
+  // through the joint solver (not an additive conversion) is what makes the
+  // double-count across an open-jaw's two legs structurally impossible: a
+  // shared source can't be spent on both legs at once, the same as it can't
+  // for money already in the wallet. Memoized per card since candidates are
+  // few (only cards that unlock a currency actually held locked qualify) and
+  // multiple offers can share a card.
+  const unlockCache = new Map<string, { total: number; thisLeg: number }>();
+  function unlockBenefit(card: CardCatalog): {
+    total: number;
+    thisLeg: number;
+  } {
+    const cached = unlockCache.get(card.id);
+    if (cached) return cached;
+
+    const zero = { total: 0, thisLeg: 0 };
+    const result = (() => {
+      if (!card.unlocks_transfers) return zero;
+      const heldEntry = entries.find((e) => e.currency_id === card.currency_id);
+      if (!heldEntry || heldEntry.unlocked || heldEntry.balance <= 0)
+        return zero;
+
+      const hypotheticalWallet: WalletCard[] = [
+        ...wallet,
+        {
+          id: "__unlock-candidate__",
+          card_id: card.id,
+          points_balance: 0,
+          opened_at: null,
+          card,
+        },
+      ];
+      const hypWallet = effectiveWallet(hypotheticalWallet, currencies, cards);
+      const hypReach = expandReachability(
+        hypWallet.entries,
+        partners,
+        bonuses,
+        currencies,
+        now
+      );
+      const hypReachable = jointReachable(
+        allLegs,
+        hypReach,
+        hypWallet.entries,
+        currencies
+      );
+
+      let total = 0;
+      let thisLeg = 0;
+      for (const leg of allLegs) {
+        const delta = Math.max(
+          0,
+          (hypReachable.get(leg.seq) ?? 0) - leg.reachable_points
+        );
+        total += delta;
+        if (leg.seq === legSeq) thisLeg = delta;
+      }
+      return { total, thisLeg };
+    })();
+
+    unlockCache.set(card.id, result);
+    return result;
+  }
+
   // --- (a) welcome offer ranking -------------------------------------------
   // Selection is spend-aware: when monthly spend is KNOWN (> 0), an offer
   // whose min_spend_usd cannot be met within its own window at that pace is
   // ineligible, so the best *reachable* offer surfaces instead. Unknown spend
   // (0) disqualifies nothing — we can't prove the minimum is out of reach.
+  // Ranking scores total delivery toward the trip (bonus + unlock) against
+  // the cost of getting it, so a card that unlocks a large held balance can
+  // outrank a bigger raw welcome offer that unlocks nothing.
   const spendPerMonth = totalSpend(monthlySpend);
   let recommended: CardRecommendation | null = null;
+  let recommendedUnlock = { total: 0, thisLeg: 0 };
   if (gap > 0) {
     for (const offer of offers) {
       if (!offer.is_active) continue;
@@ -187,8 +327,10 @@ export function closeGap(params: {
       if (!eligibleAtStatedSpend) continue;
 
       const delivered = Math.floor(offer.points * conversion);
+      const unlock = unlockBenefit(card);
       const denominator = Math.max(1, offer.min_spend_usd + card.annual_fee);
-      const score = Math.round((offer.points / denominator) * 1000) / 1000;
+      const totalDelivery = delivered + unlock.total;
+      const score = Math.round((totalDelivery / denominator) * 1000) / 1000;
       const candidate: CardRecommendation = {
         card_id: card.id,
         card_name: card.name,
@@ -196,18 +338,24 @@ export function closeGap(params: {
         offer_id: offer.id,
         offer_points: offer.points,
         delivered_points: delivered,
+        unlocked_points: unlock.total,
         min_spend_usd: offer.min_spend_usd,
         window_months: offer.window_months,
         annual_fee: card.annual_fee,
         score,
       };
+      const recommendedTotal =
+        recommended !== null
+          ? recommended.delivered_points + recommended.unlocked_points
+          : -1;
       if (
         recommended === null ||
         candidate.score > recommended.score ||
         (candidate.score === recommended.score &&
-          candidate.delivered_points > recommended.delivered_points)
+          totalDelivery > recommendedTotal)
       ) {
         recommended = candidate;
+        recommendedUnlock = unlock;
       }
     }
   }
@@ -249,12 +397,20 @@ export function closeGap(params: {
   const monthsHeld =
     gap <= 0 ? 0 : held !== null && held > 0 ? Math.ceil(gap / held) : null;
 
+  // The released balance needs no spend and no window — it lands the month
+  // the card is approved (modeled as month 1, same floor as bonus_month).
+  // So months_with_card is computable purely off the unlock even when spend
+  // (and therefore bonus_month) is unknown.
   let monthsWithCard: number | null = gap <= 0 ? 0 : null;
-  if (gap > 0 && recommended !== null && bonusMonth !== null) {
+  if (gap > 0 && recommended !== null) {
     const velocity = withRecommended ?? 0;
     for (let m = 1; m <= 120; m += 1) {
       const earned =
-        velocity * m + (m >= bonusMonth ? recommended.delivered_points : 0);
+        velocity * m +
+        recommendedUnlock.thisLeg +
+        (bonusMonth !== null && m >= bonusMonth
+          ? recommended.delivered_points
+          : 0);
       if (earned >= gap) {
         monthsWithCard = m;
         break;
@@ -268,5 +424,6 @@ export function closeGap(params: {
     months_held: monthsHeld,
     months_with_card: monthsWithCard,
     bonus_month: bonusMonth,
+    unlock_points_this_leg: recommendedUnlock.thisLeg,
   };
 }

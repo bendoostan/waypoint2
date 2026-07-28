@@ -74,6 +74,7 @@ function openJawStrategy(): Strategy {
       offer_id: OFFER_ID,
       offer_points: 60_000,
       delivered_points: 60_000,
+      unlocked_points: 0,
       min_spend_usd: 4_000,
       window_months: 3,
       annual_fee: 0,

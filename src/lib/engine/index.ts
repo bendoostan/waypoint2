@@ -7,7 +7,7 @@
 // programs) — solve each candidate's shared-wallet allocation exactly, then
 // rank. After the main solve we compute the one-cabin-down teaser (Task 4).
 import { closeGap } from "./gap";
-import type { GapClosure } from "./gap";
+import type { GapClosure, LegNeed } from "./gap";
 import { effectiveWallet } from "./effective-wallet";
 import type { EffectiveWallet } from "./effective-wallet";
 import { expandReachability } from "./reachability";
@@ -233,11 +233,23 @@ function assembleCore(candidate: TripCandidate, ctx: Ctx): StrategyCore {
     0
   );
 
+  // The trip's full leg set, for closeGap's joint unlock re-solve — every
+  // leg's own gap closure needs to see both legs so a released balance that
+  // could help either one is never credited to both (see gap.ts).
+  const allLegs: LegNeed[] = legs.map((l) => ({
+    seq: l.seq,
+    points_needed: l.points_needed,
+    dest_currency_id: l.program_currency_id,
+    reachable_points: l.reachable_points,
+  }));
+
   // Gap closure runs per leg, targeting that leg's program with that leg's gap.
   const perLeg: LegAssessment[] = legs.map((plan) => {
     const closure = closeGap({
       gap: plan.gap,
       destCurrencyId: plan.program_currency_id,
+      legSeq: plan.seq,
+      allLegs,
       entries: ctx.wallet.entries,
       wallet: ctx.heldWallet,
       currencies: ctx.ref.currencies,
@@ -338,12 +350,16 @@ function legProjection(a: LegAssessment): LegProjection {
     bonus_month: null,
     bonus_delivered: 0,
     bonus_event: null,
+    unlock_month: null,
+    unlock_delivered: 0,
+    unlock_event: null,
   };
   if (plan.gap <= 0) return none;
 
   const held = closure.earn_velocity.held ?? 0;
   const withRec = closure.earn_velocity.with_recommended ?? 0;
   const card = closure.recommended_card;
+  const unlockThisLeg = closure.unlock_points_this_leg;
   const heldOnly = { ...none, velocity: held };
   const cardPath = {
     ...base,
@@ -355,6 +371,16 @@ function legProjection(a: LegAssessment): LegProjection {
           card.delivered_points
         )} points after $${fmt(card.min_spend_usd)} spend)`
       : null,
+    // Available on approval, not when the bonus posts — a released balance
+    // needs no spend, so it lands at month 1 regardless of bonus_month.
+    unlock_month: card && unlockThisLeg > 0 ? 1 : null,
+    unlock_delivered: card ? unlockThisLeg : 0,
+    unlock_event:
+      card && unlockThisLeg > 0
+        ? `${card.issuer} ${card.card_name} approved — ~${fmt(
+            unlockThisLeg
+          )} points released from your held balance`
+        : null,
   };
 
   switch (tier) {

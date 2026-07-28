@@ -34,6 +34,15 @@ export type LegProjection = {
   bonus_delivered: number;
   /** welcome_bonus_posts event text for this leg, or null when no card */
   bonus_event: string | null;
+  /**
+   * 1-based month the recommended card's unlock takes effect, or null. Never
+   * bonus_month — approval needs no spend, so it's available earlier.
+   */
+  unlock_month: number | null;
+  /** already-held points this leg receives once the card is approved */
+  unlock_delivered: number;
+  /** unlock event text for this leg, or null when there's nothing to unlock */
+  unlock_event: string | null;
 };
 
 function transferDescriptions(
@@ -108,7 +117,11 @@ export function buildTimeline(params: {
       leg.bonus_month !== null && m >= leg.bonus_month
         ? leg.bonus_delivered
         : 0;
-    return Math.floor(leg.reachable + leg.velocity * m + bonus);
+    const unlock =
+      leg.unlock_month !== null && m >= leg.unlock_month
+        ? leg.unlock_delivered
+        : 0;
+    return Math.floor(leg.reachable + leg.velocity * m + bonus + unlock);
   };
   const legCovered = (leg: LegProjection, m: number): boolean =>
     Math.min(balanceAt(leg, m), leg.needed) >= leg.needed;
@@ -131,7 +144,8 @@ export function buildTimeline(params: {
   // Will any gapped leg ever move? If none does, nothing changes — one month.
   const canProgress = legs.some(
     (l) =>
-      l.needed - l.reachable > 0 && (l.velocity > 0 || l.bonus_month !== null)
+      l.needed - l.reachable > 0 &&
+      (l.velocity > 0 || l.bonus_month !== null || l.unlock_month !== null)
   );
   if (!canProgress) {
     return [
@@ -155,8 +169,19 @@ export function buildTimeline(params: {
     const raw = balancesAt(m);
     const events: TimelineEntry["events"] = [];
 
-    // Welcome bonuses post in their month (skip month 0 — a bonus needs spend).
+    // Unlocks land on approval, bonuses need spend to post — skip month 0 for
+    // both (neither happens with zero action taken), and emit unlocks before
+    // bonuses so a month that has both reads in the right order.
     if (m > 0) {
+      for (const l of legs) {
+        if (
+          l.unlock_month !== null &&
+          m === l.unlock_month &&
+          l.unlock_event !== null
+        ) {
+          events.push({ type: "unlock", description: l.unlock_event });
+        }
+      }
       for (const l of legs) {
         if (
           l.bonus_month !== null &&

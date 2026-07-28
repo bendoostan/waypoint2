@@ -20,6 +20,31 @@ export function programWordmark(name: string): string {
   return name.split(/\s+/)[0] ?? name;
 }
 
+/** 'plans.generated_at' timestamptz -> "Jul 28, 2026, 3:04 PM". */
+export function fmtDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+// A plain (non-affiliate) landing page per issuer — the honest fallback when
+// card_catalog.affiliate_url is null (the common case at launch). Only the
+// three issuers actually seeded exist here; an unlisted issuer renders no
+// link at all rather than a guessed URL (DESIGN.md: never a broken CTA).
+const ISSUER_APPLY_URLS: Record<string, string> = {
+  Chase: "https://creditcards.chase.com",
+  "American Express": "https://www.americanexpress.com/en-us/credit-cards/",
+  "Capital One": "https://www.capitalone.com/credit-cards/",
+};
+
+export function issuerApplyUrl(issuer: string): string | null {
+  return ISSUER_APPLY_URLS[issuer] ?? null;
+}
+
 export function fmtUsd(n: number): string {
   return `$${n.toLocaleString("en-US", {
     minimumFractionDigits: 0,

@@ -30,7 +30,7 @@ export function legRedeemViews(strategy: Strategy): LegRedeemView[] {
 export type RedeemFutureSources = {
   /** with_recommended when a card is being recommended, else held. */
   velocity: number | null;
-  /** True when there's a welcome bonus or nonzero earn velocity to show. */
+  /** True when there's a released balance, a welcome bonus, or nonzero earn velocity to show. */
   hasFutureSource: boolean;
 };
 
@@ -42,9 +42,31 @@ export type RedeemFutureSources = {
 export function redeemFutureSources(strategy: Strategy): RedeemFutureSources {
   const velocity =
     strategy.earn_velocity.with_recommended ?? strategy.earn_velocity.held;
+  const card = strategy.recommended_card;
   return {
     velocity,
     hasFutureSource:
-      strategy.recommended_card !== null || (velocity !== null && velocity > 0),
+      (card !== null &&
+        (card.delivered_points > 0 || card.unlocked_points > 0)) ||
+      (velocity !== null && velocity > 0),
   };
+}
+
+/**
+ * The currency name behind recommended_card.unlocked_points, for copy like
+ * "released from your Chase Ultimate Rewards balance". Not carried on
+ * CardRecommendation itself (no currency field there) — resolved from
+ * unlock_opportunities, which the engine guarantees lists this exact card
+ * among unlocking_card_ids whenever unlocked_points > 0 (see gap.ts
+ * unlockBenefit: a nonzero unlock requires a held, locked balance in that
+ * currency, which is precisely what populates unlock_opportunities). Null
+ * when there's nothing released.
+ */
+export function unlockedCurrencyName(strategy: Strategy): string | null {
+  const card = strategy.recommended_card;
+  if (!card || card.unlocked_points <= 0) return null;
+  const opp = strategy.unlock_opportunities.find((u) =>
+    u.unlocking_card_ids.includes(card.card_id)
+  );
+  return opp?.currency_name ?? null;
 }

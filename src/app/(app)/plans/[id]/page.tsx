@@ -24,7 +24,11 @@ import type {
   UnlockOpportunity,
 } from "@/lib/engine/schema";
 import { getOrCreatePlan } from "./get-or-create-plan";
-import { legRedeemViews, redeemFutureSources } from "./redeem-view";
+import {
+  legRedeemViews,
+  redeemFutureSources,
+  unlockedCurrencyName,
+} from "./redeem-view";
 import { UpdatePlanButton } from "./update-plan-button";
 
 type CardCatalogLite = {
@@ -533,10 +537,13 @@ function CardRecommendation({
   card,
   brandColor,
   affiliateUrl,
+  unlockCurrencyName,
 }: {
   card: NonNullable<Strategy["recommended_card"]>;
   brandColor: string | null;
   affiliateUrl: string | null;
+  /** Name of the currency card.unlocked_points releases, or null when 0. */
+  unlockCurrencyName: string | null;
 }) {
   // affiliate_url is null for most cards at launch — the plain issuer link is
   // the common case, not a downgrade, so it gets the identical button.
@@ -552,16 +559,28 @@ function CardRecommendation({
           {card.card_name}
         </div>
         <p className="text-wp-body mt-1 text-[13px] leading-relaxed">
-          Get about{" "}
           <span className="text-wp-ink font-semibold tabular-nums">
             {fmtInt(card.delivered_points)}
           </span>{" "}
-          points after{" "}
+          points from the welcome bonus (after{" "}
           <span className="text-wp-ink font-semibold tabular-nums">
             {fmtUsd(card.min_spend_usd)}
           </span>{" "}
           spend within {card.window_months}{" "}
-          {card.window_months === 1 ? "month" : "months"}.
+          {card.window_months === 1 ? "month" : "months"})
+          {/* Two separate figures, never summed — they arrive at different
+              times (approval vs. after meeting spend) and traceability
+              depends on a reader seeing which is which. */}
+          {card.unlocked_points > 0 && unlockCurrencyName ? (
+            <>
+              , plus{" "}
+              <span className="text-wp-ink font-semibold tabular-nums">
+                {fmtInt(card.unlocked_points)}
+              </span>{" "}
+              released from your {unlockCurrencyName} balance
+            </>
+          ) : null}
+          .
         </p>
         <p className="text-wp-muted-2 mt-1 text-[12.5px]">
           {card.annual_fee > 0
@@ -616,6 +635,7 @@ function OpenCardSection({
                 cardCatalog.get(strategy.recommended_card.card_id)
                   ?.affiliate_url ?? null
               }
+              unlockCurrencyName={unlockedCurrencyName(strategy)}
             />
           </div>
         ) : null}
@@ -746,6 +766,7 @@ function RedeemPanel({
     strategy.unlock_opportunities.map((u) => [u.currency_id, u])
   );
   const { velocity, hasFutureSource } = redeemFutureSources(strategy);
+  const unlockCurrencyName = unlockedCurrencyName(strategy);
 
   return (
     <Panel>
@@ -838,7 +859,24 @@ function RedeemPanel({
           </div>
           {hasFutureSource ? (
             <ul className="space-y-2">
-              {strategy.recommended_card ? (
+              {/* Ordered by when each source arrives: the released balance
+                  lands on approval, the bonus posts at bonus_month, spend
+                  accrues monthly after that. */}
+              {strategy.recommended_card &&
+              strategy.recommended_card.unlocked_points > 0 &&
+              unlockCurrencyName ? (
+                <li className="text-wp-body flex items-baseline justify-between gap-3 text-[13px]">
+                  <span>
+                    Released from your {unlockCurrencyName} balance{" "}
+                    <span className="text-wp-muted-2">· future</span>
+                  </span>
+                  <span className="text-wp-ink flex-none font-medium tabular-nums">
+                    {fmtInt(strategy.recommended_card.unlocked_points)} pts
+                  </span>
+                </li>
+              ) : null}
+              {strategy.recommended_card &&
+              strategy.recommended_card.delivered_points > 0 ? (
                 <li className="text-wp-body flex items-baseline justify-between gap-3 text-[13px]">
                   <span>
                     {strategy.recommended_card.card_name} welcome bonus{" "}

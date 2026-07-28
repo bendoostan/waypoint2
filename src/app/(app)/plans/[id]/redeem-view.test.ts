@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { legRedeemViews, redeemFutureSources } from "./redeem-view";
+import {
+  legRedeemViews,
+  redeemFutureSources,
+  unlockedCurrencyName,
+} from "./redeem-view";
 import { strategySchema, type Strategy } from "@/lib/engine/schema";
 
 const CURRENCY_A = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -101,6 +105,34 @@ function openJawStrategy(): Strategy {
   return strategySchema.parse(strategy);
 }
 
+// A strategy whose only future source is a released balance — no welcome
+// bonus (delivered_points: 0, an edge case but a legal one) and no known
+// spend (earn_velocity all null). This is the shape redeemFutureSources
+// used to miss before it accounted for unlocked_points.
+function unlockOnlyStrategy(): Strategy {
+  const strategy = openJawStrategy();
+  strategy.recommended_card = {
+    ...strategy.recommended_card!,
+    delivered_points: 0,
+    unlocked_points: 45_000,
+  };
+  strategy.earn_velocity = { held: null, with_recommended: null };
+  strategy.unlock_opportunities = [
+    {
+      currency_id: CURRENCY_A,
+      currency_name: "Program A",
+      balance: 80_000,
+      cashback_cpp: 1,
+      transfer_cpp: 2,
+      value_now_usd: 800,
+      value_unlocked_usd: 1_600,
+      delta_usd: 800,
+      unlocking_card_ids: [CARD_ID],
+    },
+  ];
+  return strategySchema.parse(strategy);
+}
+
 describe("legRedeemViews", () => {
   it("includes a leg with zero allocations instead of dropping it", () => {
     const views = legRedeemViews(openJawStrategy());
@@ -133,5 +165,32 @@ describe("redeemFutureSources", () => {
     const { velocity, hasFutureSource } = redeemFutureSources(strategy);
     expect(hasFutureSource).toBe(false);
     expect(velocity).toBeNull();
+  });
+
+  it("reports a future source when a released balance is the ONLY thing closing the gap", () => {
+    // No welcome bonus, no known spend — the card is recommended purely for
+    // the balance it releases. This used to fall through to "no future
+    // source" before hasFutureSource accounted for unlocked_points.
+    const { velocity, hasFutureSource } =
+      redeemFutureSources(unlockOnlyStrategy());
+    expect(hasFutureSource).toBe(true);
+    expect(velocity).toBeNull();
+  });
+});
+
+describe("unlockedCurrencyName", () => {
+  it("is null when there's no recommended card", () => {
+    const strategy = openJawStrategy();
+    strategy.recommended_card = null;
+    expect(unlockedCurrencyName(strategy)).toBeNull();
+  });
+
+  it("is null when the recommended card releases nothing", () => {
+    // openJawStrategy's recommended_card has unlocked_points: 0.
+    expect(unlockedCurrencyName(openJawStrategy())).toBeNull();
+  });
+
+  it("resolves the released currency's name from unlock_opportunities", () => {
+    expect(unlockedCurrencyName(unlockOnlyStrategy())).toBe("Program A");
   });
 });

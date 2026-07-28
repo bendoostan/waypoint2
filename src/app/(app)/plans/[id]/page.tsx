@@ -17,12 +17,14 @@ import {
   programWordmark,
 } from "@/lib/format";
 import type {
+  Allocation,
   CabinAlternative,
   Strategy,
   TimelineEntry,
   UnlockOpportunity,
 } from "@/lib/engine/schema";
 import { getOrCreatePlan } from "./get-or-create-plan";
+import { legRedeemViews, redeemFutureSources } from "./redeem-view";
 import { UpdatePlanButton } from "./update-plan-button";
 
 type CardCatalogLite = {
@@ -154,7 +156,7 @@ export default async function PlanPage({
             {allStretch ? <AllStretchNote /> : null}
 
             {bookable ? (
-              <BookableNowSection strategy={top} />
+              <BookableNowSection strategy={top} cardCatalog={cardCatalog} />
             ) : (
               <>
                 <p className="text-wp-muted mt-8 text-[13px] leading-relaxed">
@@ -172,7 +174,11 @@ export default async function PlanPage({
 
                 <EarnSection n={actNumberOf("earn")} strategy={top} />
 
-                <RedeemSection n={actNumberOf("redeem")} strategy={top} />
+                <RedeemSection
+                  n={actNumberOf("redeem")}
+                  strategy={top}
+                  cardCatalog={cardCatalog}
+                />
               </>
             )}
 
@@ -697,11 +703,49 @@ function EarnSection({ n, strategy }: { n: number; strategy: Strategy }) {
   );
 }
 
-function RedeemPanel({ strategy }: { strategy: Strategy }) {
-  const byLeg = new Map<number, typeof strategy.allocations>();
-  for (const a of strategy.allocations) {
-    byLeg.set(a.leg_seq, [...(byLeg.get(a.leg_seq) ?? []), a]);
+// An allocation's currency is either unlocked (a live transfer source — the
+// engine never lets a locked currency become one, see reachability.ts) or it
+// isn't. Derived from strategy.unlock_opportunities, never invented, so this
+// stays correct even though today's engine makes "locked" unreachable here:
+// no allocation currency can also be an unlock_opportunities currency, since
+// those two lists partition the wallet by the same unlocked/locked flag.
+function AllocationTag({
+  allocation,
+  unlockByCurrency,
+  cardCatalog,
+}: {
+  allocation: Allocation;
+  unlockByCurrency: Map<string, UnlockOpportunity>;
+  cardCatalog: Map<string, CardCatalogLite>;
+}) {
+  const unlock = unlockByCurrency.get(allocation.currency_id);
+  if (!unlock) {
+    return (
+      <div className="text-wp-muted-2 mt-0.5 text-[11px]">
+        transferable today
+      </div>
+    );
   }
+  const card = cheapestUnlockingCard(unlock, cardCatalog);
+  return (
+    <div className="text-wp-muted-2 mt-0.5 text-[11px]">
+      locked today{card ? ` · released by the ${card.name}` : ""}
+    </div>
+  );
+}
+
+function RedeemPanel({
+  strategy,
+  cardCatalog,
+}: {
+  strategy: Strategy;
+  cardCatalog: Map<string, CardCatalogLite>;
+}) {
+  const legViews = legRedeemViews(strategy);
+  const unlockByCurrency = new Map(
+    strategy.unlock_opportunities.map((u) => [u.currency_id, u])
+  );
+  const { velocity, hasFutureSource } = redeemFutureSources(strategy);
 
   return (
     <Panel>
@@ -722,60 +766,137 @@ function RedeemPanel({ strategy }: { strategy: Strategy }) {
       </div>
 
       <div className="mt-4 space-y-4">
-        {[...byLeg.entries()].map(([seq, allocations]) => (
-          <div key={seq}>
-            {byLeg.size > 1 ? (
-              <div className="text-wp-muted-2 mb-2 text-[11px] tracking-wide uppercase">
-                {seq === 1 ? "Outbound" : "Return"}
-              </div>
-            ) : null}
+        {legViews.map(({ seq, allocations, gap }) => {
+          return (
+            <div key={seq}>
+              {legViews.length > 1 ? (
+                <div className="text-wp-muted-2 mb-2 text-[11px] tracking-wide uppercase">
+                  {seq === 1 ? "Outbound" : "Return"}
+                </div>
+              ) : null}
+              {allocations.length > 0 ? (
+                <ul className="space-y-2">
+                  {allocations.map((a, i) => (
+                    <li key={i} className="text-wp-body text-[13px]">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span>
+                          {programWordmark(a.currency_name)}
+                          {a.path.length > 0 ? (
+                            <span className="text-wp-muted-2">
+                              {" "}
+                              (
+                              {a.path
+                                .map(
+                                  (p) =>
+                                    `${programWordmark(p.from_currency_name)}→${programWordmark(
+                                      p.to_currency_name
+                                    )}${p.bonus_pct ? ` +${p.bonus_pct}%` : ""}`
+                                )
+                                .join(", ")}
+                              )
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="text-wp-ink flex-none font-medium tabular-nums">
+                          {fmtInt(a.points_used)} pts
+                        </span>
+                      </div>
+                      <AllocationTag
+                        allocation={a}
+                        unlockByCurrency={unlockByCurrency}
+                        cardCatalog={cardCatalog}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-wp-muted text-[13px] leading-relaxed">
+                  Nothing you hold today reaches this leg
+                  {hasFutureSource ? " — see below for what closes it." : "."}
+                </p>
+              )}
+              {gap > 0 ? (
+                <p className="text-wp-muted-2 mt-1.5 text-[12.5px]">
+                  <span className="text-wp-ink font-semibold tabular-nums">
+                    {fmtInt(gap)}
+                  </span>{" "}
+                  points short
+                  {allocations.length > 0
+                    ? " — see below for what closes it."
+                    : "."}
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+
+      {strategy.gap_total > 0 ? (
+        <div className="border-wp-track mt-4 border-t pt-4">
+          <div className="text-wp-muted-2 mb-2 text-[11px] tracking-wide uppercase">
+            Closes the remaining {fmtInt(strategy.gap_total)} points
+          </div>
+          {hasFutureSource ? (
             <ul className="space-y-2">
-              {allocations.map((a, i) => (
-                <li
-                  key={i}
-                  className="text-wp-body flex items-baseline justify-between gap-3 text-[13px]"
-                >
+              {strategy.recommended_card ? (
+                <li className="text-wp-body flex items-baseline justify-between gap-3 text-[13px]">
                   <span>
-                    {programWordmark(a.currency_name)}
-                    {a.path.length > 0 ? (
-                      <span className="text-wp-muted-2">
-                        {" "}
-                        (
-                        {a.path
-                          .map(
-                            (p) =>
-                              `${programWordmark(p.from_currency_name)}→${programWordmark(
-                                p.to_currency_name
-                              )}${p.bonus_pct ? ` +${p.bonus_pct}%` : ""}`
-                          )
-                          .join(", ")}
-                        )
-                      </span>
-                    ) : null}
+                    {strategy.recommended_card.card_name} welcome bonus{" "}
+                    <span className="text-wp-muted-2">· future</span>
                   </span>
                   <span className="text-wp-ink flex-none font-medium tabular-nums">
-                    {fmtInt(a.points_used)} pts
+                    {fmtInt(strategy.recommended_card.delivered_points)} pts
                   </span>
                 </li>
-              ))}
+              ) : null}
+              {velocity !== null && velocity > 0 ? (
+                <li className="text-wp-body flex items-baseline justify-between gap-3 text-[13px]">
+                  <span>
+                    Points earned from spend{" "}
+                    <span className="text-wp-muted-2">· future</span>
+                  </span>
+                  <span className="text-wp-ink flex-none font-medium tabular-nums">
+                    ~{fmtInt(velocity)} pts/mo
+                  </span>
+                </li>
+              ) : null}
             </ul>
-          </div>
-        ))}
-      </div>
+          ) : (
+            <p className="text-wp-muted text-[13px] leading-relaxed">
+              No card or spend identified yet to close this gap — add one in
+              your wallet.
+            </p>
+          )}
+        </div>
+      ) : null}
     </Panel>
   );
 }
 
-function RedeemSection({ n, strategy }: { n: number; strategy: Strategy }) {
+function RedeemSection({
+  n,
+  strategy,
+  cardCatalog,
+}: {
+  n: number;
+  strategy: Strategy;
+  cardCatalog: Map<string, CardCatalogLite>;
+}) {
   return (
     <>
       <SectionHead n={n}>Redeem</SectionHead>
-      <RedeemPanel strategy={strategy} />
+      <RedeemPanel strategy={strategy} cardCatalog={cardCatalog} />
     </>
   );
 }
 
-function BookableNowSection({ strategy }: { strategy: Strategy }) {
+function BookableNowSection({
+  strategy,
+  cardCatalog,
+}: {
+  strategy: Strategy;
+  cardCatalog: Map<string, CardCatalogLite>;
+}) {
   return (
     <>
       <SectionHead>How to book it</SectionHead>
@@ -783,7 +904,7 @@ function BookableNowSection({ strategy }: { strategy: Strategy }) {
         You already have enough — no new card, no more spend. Here&rsquo;s
         exactly how to redeem.
       </p>
-      <RedeemPanel strategy={strategy} />
+      <RedeemPanel strategy={strategy} cardCatalog={cardCatalog} />
     </>
   );
 }
